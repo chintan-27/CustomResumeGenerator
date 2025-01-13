@@ -1,0 +1,31 @@
+name
+city
+state
+email
+number
+linkedin
+github
+website
+education
+    - university
+    - gpa
+    - maxgpa
+    - duration
+    - degree
+    - major
+    - specialization
+    - educity
+    - edustate
+    - educountry
+relevantcoursework
+skills
+experience
+    - position
+    - company
+    - duration
+    - points
+projects
+    - name
+    - details
+    - link
+    - points
