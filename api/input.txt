@@ -1,0 +1,86 @@
+Role Description:
+
+
+
+We are seeking a Machine Learning Engineer with approximately 5 years of experience in the field. The ideal candidate will have a strong foundation in low-level machine learning skills, data science, and advanced AI techniques. You will be working with Large Language Models (LLMs), Retrieval-Augmented Generation (RAG), and other state-of-the-art toolchains. Additionally, familiarity with cloud operations will be beneficial. If you are passionate about pushing the boundaries of AI and enjoy working on complex challenges, we want to hear from you!
+
+
+
+Key Responsibilities:
+
+
+
+Model Development: Design, implement, and optimize machine learning models and algorithms, focusing on low-level techniques and cutting-edge AI methodologies.
+
+
+
+Data Handling: Develop and maintain data pipelines, perform exploratory data analysis, and apply data preprocessing techniques to ensure high-quality input for machine learning models. LLM & RAG Implementation: Leverage and fine-tune Large Language Models (LLMs) and Retrieval-Augmented Generation (RAG) systems to create innovative solutions and enhance model performance.
+
+
+
+Toolchain Expertise: Utilize and integrate modern toolchains and frameworks (e.g., TensorFlow, PyTorch, Hugging Face) to build and deploy machine learning models.
+
+
+
+Cloud Operations: Manage and optimize machine learning workflows in cloud environments (e.g., AWS, Google Cloud, Azure), ensuring scalability and efficiency.
+
+
+
+Collaboration: Work closely with cross-functional teams, including data scientists, software engineers, and product managers, to align on project goals and deliver high-impact solutions.
+
+
+
+Continuous Learning: Stay current with the latest advancements in AI and machine learning, and actively contribute to the knowledge base of the team.
+
+
+
+Qualifications:
+
+
+
+Experience: Approximately 5 years of professional experience in machine learning and AI engineering.
+
+
+
+Technical Skills: Proficiency in Python and relevant libraries (e.g., NumPy, pandas, scikit-learn). Strong understanding of machine learning algorithms, statistical analysis, and model evaluation techniques.
+
+
+
+LLMs & RAG: Hands-on experience with Large Language Models (LLMs) and Retrieval-Augmented Generation (RAG) technologies, including fine-tuning and deployment.
+
+
+
+Data Science Foundations: Solid background in data science principles, including data preprocessing, feature engineering, and model selection.
+
+
+
+Cloud Operations: Experience with cloud platforms (AWS, Google Cloud, Azure) and knowledge of cloud-based machine learning services and deployment strategies.
+
+
+
+Toolchain Knowledge: Familiarity with machine learning frameworks and tools (e.g., TensorFlow, PyTorch, Hugging Face Transformers) and version control systems (e.g., Git).
+
+
+
+Problem-Solving: Strong analytical and problem-solving skills, with the ability to tackle complex challenges and derive actionable insights.
+
+
+
+Communication: Excellent communication skills, with the ability to present technical concepts clearly and effectively to non-technical stakeholders.
+
+
+
+Preferred Qualifications:
+
+
+
+Advanced Degrees: Master’s or PhD in Computer Science, Data Science, Artificial Intelligence, or a related field.
+
+
+
+Research Experience: Experience in conducting and publishing research in the field of machine learning or AI.
+
+
+
+Certifications: Relevant certifications in cloud platforms or machine learning.
+
