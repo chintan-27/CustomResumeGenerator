@@ -48,6 +48,15 @@ experience:
     endmonth: ""
     endyear: ""
     description: "As a Research Assistant at the University of Florida (SMILE Lab), I optimized the GatorBrain codebase, a brain MRI segmentation model that can be fine-tuned akin to ChatGPT, achieving a 30% faster inference speed by streamlining code and implementing CUDA GPU utilization. I led a backbone change in the GatorBrain encoder model, enhancing scalability and performance to accommodate diverse MRI datasets up to 50 GB using Singularity containers for version control in a Linux-based environment. Additionally, I implemented over four efficient data cleaning strategies for GatorBrain, ensuring accuracy and reliability in results."
+  
+  - position: "Volunteer Research Assistant"
+    company: "University of Florida"
+    startmonth: "Jan"
+    startyear: "2024"
+    current: false
+    endmonth: "Jan"
+    endyear: "2025"
+    description: "Led integration of GPN transformer model for DNA sequence token 0 embeddings, achieving 20% improvement. Orchestrated ESM2 model usage for protein sequence embedding, resulting in a 25% advancement in GWAS. Modeled DNA-protein interactions using curated datasets, employing static ML models for matching, contributing to a 30% expansion in integrative genomic analysis knowledge and progress towards curing genetic diseases."
 
   - position: "Research Assistant"
     company: "University of Florida (IC3 Lab)"
@@ -78,6 +87,7 @@ experience:
 
   - position: "Software Developer Intern"
     company: "Phemesoftware Ltd. (IBM)"
+    current: false
     startmonth: "Jun"
     startyear: "2021"
     endmonth: "Dec"

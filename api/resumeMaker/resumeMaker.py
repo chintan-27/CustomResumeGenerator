@@ -3,7 +3,12 @@ import re
 from jinja2 import Template
 import subprocess
 import os
-from gpt.gpt import getSkills
+from gpt.gpt import extractExperienceAndSkills, getRelevanceScore, getSkills, generatePoints
+from datetime import datetime
+
+
+useMoreSpace = False
+useLessSpace = False
 
 # Load YAML data
 def load_yaml(file_path):
@@ -30,6 +35,8 @@ def extract_patterns(latex_content):
 def handle_education(latex_content, data, education_latex_file):
     education_latex_og = read_latex(education_latex_file)
     final_education_latex = []
+    global useMoreSpace
+    useMoreSpace = (len(data) < 2)
     for education in data:
         education_latex = education_latex_og.split("-----")[0]
         extracted_patterns = list(set(extract_patterns(education_latex)))
@@ -46,27 +53,89 @@ def handle_education(latex_content, data, education_latex_file):
     latex_content = latex_content.replace("xyzeducationxyz", final_education_latex)
     return latex_content
 
+
+# Calculate duration of the experience 
+def calculate_experience_duration(experience):
+    # Get current date if the experience is current
+    if experience['current']:
+        end_date = datetime.now()
+    else:
+        end_date = datetime.strptime(f"{experience['endmonth']} {experience['endyear']}", "%b %Y")
+
+    start_date = datetime.strptime(f"{experience['startmonth']} {experience['startyear']}", "%b %Y")
+    # Calculate the difference in years
+    duration = end_date - start_date
+    years = duration.days / 365.25  # Approximate years considering leap years
+    return round(years, 2)  # Return duration rounded to 2 decimal places
+
+
+
 # Handle Experience
-def handle_experience(latex_content, data, experience_latex_file):
+def handle_experience(latex_content, data, keywords, jobdescription, experience_latex_file):
+    # Sort experiences by start date in descending order
+    sorted_experiences = sorted(data, key=lambda x: x[0], reverse=True)
+
+    if len(data) > 3:
+        useLessSpace = True
+    elif len(data) < 3:
+        useMoreSpace = True
+    
+    # Read the original LaTeX template for experience
     experience_latex_og = read_latex(experience_latex_file)
     final_experience_latex = []
-    for experience in data:
+
+    # Iterate through sorted experiences
+    for index, experienceTuple in enumerate(sorted_experiences):
+        experience = experienceTuple[1]
+
+        # Determine the number of points to generate based on experience index
+        if index == 0:
+            points_count = 4
+        elif index in [1, 2]:
+            points_count = 2
+        else:
+            points_count = 1
+        
+        # Generate bullet points for the experience
+        generated_points = generatePoints(experience, "experience", jobdescription, keywords, points_count)
+        
+        # Prepare LaTeX for the current experience
         experience_latex = experience_latex_og.split("-----")[0]
         extracted_patterns = list(set(extract_patterns(experience_latex)))
+
+        # Replace patterns in the LaTeX template
         for pattern in extracted_patterns:
             if pattern == "duration":
-                duration = f"{experience['startmonth'][:3]} {experience['startyear']} - {experience['endmonth'][:3]} {experience['endyear']}" if experience['endmonth'] and experience['endyear'] else f"{experience['startmonth'][:3]} {experience['startyear']} - Present"
+                # Format the duration of the experience
+                duration = (f"{experience['startmonth'][:3]} {experience['startyear']} - "
+                            f"{experience['endmonth'][:3]} {experience['endyear']}" 
+                            if experience['endmonth'] and experience['endyear'] 
+                            else f"{experience['startmonth'][:3]} {experience['startyear']} - Present")
                 experience_latex = experience_latex.replace("xyzdurationxyz", duration)
             elif pattern != "points":
+                # Replace other patterns with corresponding experience data
                 experience_latex = experience_latex.replace(f"xyz{pattern}xyz", experience[pattern])
             else:
-                points = "\n".join([r"\item " + point.replace('%', r'\%').replace('$', r'\$') for point in experience['points']]) if experience['points'] else r"\item No points available."
+                # Handle points replacement
+                points = ("\n".join([r"\item " + point.replace('%', r'\%').replace('$', r'\$').strip() 
+                                     for point in generated_points]) 
+                          if generated_points else r"\item No points available.")
                 experience_latex = experience_latex.replace("xyzpointsxyz", points)
-        final_experience_latex.append(experience_latex)
 
+        # Append the formatted experience LaTeX to the final list
+        final_experience_latex.append((experience["startmonth"], experience["startyear"], experience_latex))
+
+    # Sort final experiences by year and month
+    final_experience_latex.sort(key=lambda x: (x[1], x[0]), reverse=True)  
+    final_experience_latex = [experience_latex for _, _, experience_latex in final_experience_latex]
+
+    # Prepare the in-between LaTeX content
     inbetween_latex = experience_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
     final_experience_latex = inbetween_latex.join(final_experience_latex)
+
+    # Replace the placeholder in the main LaTeX content
     latex_content = latex_content.replace("xyzexperiencexyz", final_experience_latex)
+    
     return latex_content
 
 # Handle Projects
@@ -89,42 +158,116 @@ def handle_projects(latex_content, data, projects_latex_file):
     latex_content = latex_content.replace("xyzprojectsxyz", final_projects_latex)
     return latex_content
 
-# TODO: Calculate relevance scores for experiences, project and achievements/certifications
-# TODO: Start with experience - select the current and two with the highest score, check the requirements for YOE, if it's not fulfilled greedily select the longest
-#       one and only if extremely necessary, select one more
-# TODO: if more than 3 selected set flag - use less space for projects and achievements/certifications if less than 3 selected set - use more space for projects and achievements
-# TODO: For the most relevant one generate 4 very very relevant points and for next 2 generate 3 and for the rest just one point
-# TODO: Select 3 with highest relevance, if all the relevance score is less than 60 generate one and select that and 2 most relevant
-# TODO: Case 1 -use less space flag is set, generate 2 points for most relevant and 1 each for the rest 2, Case 2: if -use more space is set, 4 for 1st and 2 for rest, 
-# TODO: Case 3: none are set generate 3 for 1st , 2 for 2nd and 1 for 3rd.
-# TODO: Check Achievement score if its is more than 80 then only add otherwise avoid. For Case 1 - just one line, For case 2 and 3, 2 lines
 
 # Replace placeholders with YAML values
 def make_latex_resume(latex_content, data, jobdescription ,template_dir):
+
+    # Extract xyz___xyz patterns from templates
     extracted_patterns = list(set(extract_patterns(latex_content)))
+    years_of_experience, skills_required, keywords = extractExperienceAndSkills(jobdescription)
+    print(keywords)
     for pattern in extracted_patterns:
+
+        # Append the simple ones
         if pattern not in ['experience', 'education', 'projects', 'skills']:
+            if pattern == 'specialization':
+                data[pattern] = ", " + pattern
             latex_content = latex_content.replace(f"xyz{pattern}xyz", data[pattern])
+
+        # Handle Skills
         elif pattern == "skills":
+
+            # Use GPT to get the relevant skills
             skills = getSkills(jobdescription, data["skills"]).split("\n")
             skills_latex = []
             for skill in skills:
                 skills_latex.append(f"\\item {skill}")
             latex_content = latex_content.replace("xyzskillsxyz", "\n".join(skills_latex))
+
+        # Handle Education    
         elif pattern == 'education':
             latex_content = handle_education(latex_content, data['education'], os.path.join(template_dir, "education.tex"))
-        # elif pattern == 'experience':
-        #     latex_content = handle_experience(latex_content, data['experience'], os.path.join(template_dir, "experience.tex"))
-        # elif pattern == 'projects':
-        #     latex_content = handle_projects(latex_content, data['projects'], os.path.join(template_dir, "projects.tex"))
+
+        # Handle Experience
+        elif pattern == 'experience':
+            experiences = data['experience']
+            current_index = -1
+            scores = []
+            final_experiences = []
+            
+            # Finding relevance scores for all the experiences
+            for index, experience in enumerate(experiences):
+                
+                experience["duration"] = calculate_experience_duration(experience)
+                score = getRelevanceScore(jobdescription, str(experience))
+
+                # If the experience is the current experience add it by default with the score for future use
+                if experience['current']:
+                    final_experiences.append((score, experience))
+
+                    # Store the index to remove the current experience from the list so we don't pick duplicates
+                    current_index = index
+                else:
+                    scores.append(score)
+
+            # Remove the current experience using the index
+            if current_index != -1:
+                experiences.pop(current_index)
+            
+            # Sorting experience w.r.t. the relevance scores 
+            sorted_experiences = sorted(zip(scores, experiences), key=lambda x: x[0], reverse=True)
+
+            # Picking the 2 most relevant experiences
+            final_experiences.extend(sorted_experiences[:2] if len(sorted_experiences) >= 2 else sorted_experiences)
+            sorted_experiences = sorted_experiences[2:] if len(sorted_experiences) >= 2 else []
+
+            if len(sorted_experiences) > 0:
+                sorted_experiences.sort(key=lambda x: calculate_experience_duration(x[1]), reverse=True)
+
+                # Calculate the total experience duration
+                total_duration = sum(calculate_experience_duration(experience) for _, experience in final_experiences)
+
+                if float(years_of_experience) - total_duration > 0.7:
+                    final_experiences.extend([sorted_experiences[0]])
+                
+            
+            latex_content = handle_experience(latex_content, final_experiences, keywords, jobdescription, os.path.join(template_dir, "experience.tex"))
+
+        # Handle Projects
+        elif pattern == 'projects':
+            project_scores = []
+            for project in data['projects']:
+                score = getRelevanceScore(jobdescription, str(project))
+                project_scores.append((score, project))
+
+            # Filter projects with a score of at least 70
+            filtered_projects = [proj for score, proj in project_scores if score >= 70]
+
+            # Sort the filtered projects by score in descending order
+            sorted_projects = sorted(filtered_projects, key=lambda x: project_scores[project_scores.index((score, x))][0], reverse=True)
+
+            # Select at most two projects
+            selected_projects = sorted_projects[:2] if len(sorted_projects) >= 2 else sorted_projects
+
+            if not useLessSpace:
+                pass
+
+
+
+            latex_content = handle_projects(latex_content, selected_projects, os.path.join(template_dir, "projects.tex"))
+
     return latex_content
 
     
 
 # Compile LaTeX to PDF
+# Function to compile a LaTeX document into a PDF
 def compile_pdf(main_tex_path, output_dir):
     try:
+        # Run the pdflatex command to compile the LaTeX file
         subprocess.run(["pdflatex", "-interaction=nonstopmode", "-output-directory", output_dir, main_tex_path], check=True)
-        print("PDF compiled successfully.")
+        print("PDF compiled successfully.")  # Notify user of successful compilation
+
     except subprocess.CalledProcessError as e:
+        # Handle any errors that occur during the compilation process
         print("Error during PDF compilation:", e)

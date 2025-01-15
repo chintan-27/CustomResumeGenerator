@@ -27,27 +27,16 @@ if __name__ == "__main__":
     experience_scores = []
     project_scores = []
 
-    for experience in yaml_data.get('experience', []):
-        score = getRelevanceScore(job_description, str(experience))
-        experience_scores.append({'position': experience['position'], 'company': experience['company'], 'score': score})
-
-    for project in yaml_data.get('projects', []):
-        score = getRelevanceScore(job_description, f"{project['name']}: {project['details']}. {project['description']}")
-        project_scores.append({'title': project['name'], 'score': score})
-
-    print("Experience Scores:", experience_scores)
-    print("Project Scores:", project_scores)
-
     # Read LaTeX template
-    # latex_template = read_latex(file_path=main_tex_file)
+    latex_template = read_latex(file_path=main_tex_file)
 
     # # Replace placeholders with YAML values
-    # populated_content = make_latex_resume(latex_content=latex_template, data=yaml_data, jobdescription=job_description, template_dir=template_dir)
+    populated_content = make_latex_resume(latex_content=latex_template, data=yaml_data, jobdescription=job_description, template_dir=template_dir)
 
     # # Write populated LaTeX to a new file
-    # write_latex(file_path=output_tex_file, content=populated_content)
+    write_latex(file_path=output_tex_file, content=populated_content)
 
     # # Compile the LaTeX file to PDF
-    # compile_pdf(main_tex_path=output_tex_file, output_dir=output_directory)
+    compile_pdf(main_tex_path=output_tex_file, output_dir=output_directory)
 
     # # app.run(debug=True)

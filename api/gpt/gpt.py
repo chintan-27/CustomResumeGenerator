@@ -59,3 +59,52 @@ def getRelevanceScore(jobdescription: str, experience_or_project: str) -> int:
     )
     score = response.choices[0].message.content.strip()
     return int(score)
+
+def extractExperienceAndSkills(jobdescription: str) -> dict:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "user", 
+             "content": f"""From the following job description, extract the required years of experience and relevant skills. Job description: {jobdescription}.
+                            The output should be of format and nothing extra:
+                            Years of Experience: <a single integer value nothing else>
+                            Skills: <a comma seperated list of skills>
+                            Keywords: <a comma seperated list of keywords>
+
+                            The output should be just these three lines and nothing else
+                        """
+            }
+        ]
+    )
+    extracted_info = response.choices[0].message.content.strip()
+    
+    years_of_experience, relevant_skills, keywords = map(lambda x: x.split(":")[1].strip(), extracted_info.split("\n")[:3])
+    years_of_experience = int(years_of_experience)
+    relevant_skills = relevant_skills.split(", ")
+    keywords = keywords.split(", ")
+    return years_of_experience, relevant_skills, keywords
+
+def generatePoints(data, typestr, jobdescription, keywords, points_count):
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Craft {str(points_count)} compelling and impactful bullet points for the following {typestr}, tailored to the job description provided: {jobdescription}. "
+                    f"{typestr} details: {data['description']}. "
+                    f"From the {typestr} information try to include whatever that is cool and very highly matches the job description. "
+                    f"Try to include these keywords: {', '.join(keywords)}.  "
+                    "Emphasize measurable achievements, advanced skills applied, and outcomes that align with the job's responsibilities and expectations. Don't use the exact information but rephrase it well. "
+                    "Each point should begin with a powerful action verb and maintain a results-driven focus, adhering to the standards of top-tier institutions like Stanford and Harvard. "
+                    "Ensure each point is concise, professional, and quantifiable. "
+                    f"Just give me {points_count} lines and nothing extra. Make the points concise and impactful"
+                )
+            }
+        ]
+    )
+    
+    generated_points = response.choices[0].message.content.strip().split("\n")
+    generated_points = [point.lstrip('- ').strip() for point in generated_points]  # Strip hyphen and whitespace from each point
+    generated_points = [point for point in generated_points if point != ""]  # Remove any empty strings
+    return generated_points  # Return only the required number of points
