@@ -252,8 +252,6 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
             if not useLessSpace:
                 pass
 
-
-
             latex_content = handle_projects(latex_content, selected_projects, os.path.join(template_dir, "projects.tex"))
 
     return latex_content

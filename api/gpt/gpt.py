@@ -98,7 +98,7 @@ def generatePoints(data, typestr, jobdescription, keywords, points_count):
                     "Emphasize measurable achievements, advanced skills applied, and outcomes that align with the job's responsibilities and expectations. Don't use the exact information but rephrase it well. "
                     "Each point should begin with a powerful action verb and maintain a results-driven focus, adhering to the standards of top-tier institutions like Stanford and Harvard. "
                     "Ensure each point is concise, professional, and quantifiable. "
-                    f"Just give me {points_count} lines and nothing extra. Make the points concise and impactful"
+                    f"Just give me {points_count} lines and nothing extra. Make the points very concise"
                 )
             }
         ]
