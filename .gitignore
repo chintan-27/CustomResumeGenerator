@@ -38,3 +38,6 @@ __pycache__
 .venv
 api/.env
 api/__pycache__
+api/instance
+output/*
+instance/
