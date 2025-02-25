@@ -1,86 +1,50 @@
-Role Description:
 
-
-
-We are seeking a Machine Learning Engineer with approximately 5 years of experience in the field. The ideal candidate will have a strong foundation in low-level machine learning skills, data science, and advanced AI techniques. You will be working with Large Language Models (LLMs), Retrieval-Augmented Generation (RAG), and other state-of-the-art toolchains. Additionally, familiarity with cloud operations will be beneficial. If you are passionate about pushing the boundaries of AI and enjoy working on complex challenges, we want to hear from you!
-
-
-
-Key Responsibilities:
-
-
-
-Model Development: Design, implement, and optimize machine learning models and algorithms, focusing on low-level techniques and cutting-edge AI methodologies.
-
-
-
-Data Handling: Develop and maintain data pipelines, perform exploratory data analysis, and apply data preprocessing techniques to ensure high-quality input for machine learning models. LLM & RAG Implementation: Leverage and fine-tune Large Language Models (LLMs) and Retrieval-Augmented Generation (RAG) systems to create innovative solutions and enhance model performance.
-
-
-
-Toolchain Expertise: Utilize and integrate modern toolchains and frameworks (e.g., TensorFlow, PyTorch, Hugging Face) to build and deploy machine learning models.
-
-
-
-Cloud Operations: Manage and optimize machine learning workflows in cloud environments (e.g., AWS, Google Cloud, Azure), ensuring scalability and efficiency.
-
-
-
-Collaboration: Work closely with cross-functional teams, including data scientists, software engineers, and product managers, to align on project goals and deliver high-impact solutions.
-
-
-
-Continuous Learning: Stay current with the latest advancements in AI and machine learning, and actively contribute to the knowledge base of the team.
-
-
-
-Qualifications:
-
-
-
-Experience: Approximately 5 years of professional experience in machine learning and AI engineering.
-
-
-
-Technical Skills: Proficiency in Python and relevant libraries (e.g., NumPy, pandas, scikit-learn). Strong understanding of machine learning algorithms, statistical analysis, and model evaluation techniques.
-
-
-
-LLMs & RAG: Hands-on experience with Large Language Models (LLMs) and Retrieval-Augmented Generation (RAG) technologies, including fine-tuning and deployment.
-
-
-
-Data Science Foundations: Solid background in data science principles, including data preprocessing, feature engineering, and model selection.
-
-
-
-Cloud Operations: Experience with cloud platforms (AWS, Google Cloud, Azure) and knowledge of cloud-based machine learning services and deployment strategies.
-
-
-
-Toolchain Knowledge: Familiarity with machine learning frameworks and tools (e.g., TensorFlow, PyTorch, Hugging Face Transformers) and version control systems (e.g., Git).
-
-
-
-Problem-Solving: Strong analytical and problem-solving skills, with the ability to tackle complex challenges and derive actionable insights.
-
-
-
-Communication: Excellent communication skills, with the ability to present technical concepts clearly and effectively to non-technical stakeholders.
-
-
-
-Preferred Qualifications:
-
-
-
-Advanced Degrees: Master’s or PhD in Computer Science, Data Science, Artificial Intelligence, or a related field.
-
-
-
-Research Experience: Experience in conducting and publishing research in the field of machine learning or AI.
-
-
-
-Certifications: Relevant certifications in cloud platforms or machine learning.
-
+NetApp Emerging Talent - Entry Level Software Engineer - Cloud
+San Jose, California, United States; Boulder, Colorado, United States; Waltham, Massachusetts, United States; Cranberry Township, Pennsylvania, United States; Wichita, Kansas, United States; Research Triangle Park, North Carolina, United States
+Job category: University
+Job ID: 128863-en_US
+Apply
+Save
+Job Summary
+We are seeking a talented and motivated Software Engineer to join our Cloud Engineering team. As a Cloud Engineer, you will be responsible for developing and maintaining cloud-based solutions, with a focus on coding complex problems and automation. The ideal candidate will have a solid background in cloud technologies, software development, and automated testing. 
+
+Key Responsibilities: 
+
+Software Development: Assist in the design, development, and maintenance of software solutions according to project requirements and established software development standards. 
+System Integration: Support the integration of various cloud services and APIs to enhance the functionality and performance of our cloud solutions. 
+Debugging and Troubleshooting: Identify, troubleshoot, and resolve system defects and issues. This includes debugging code, resolving configuration issues, and finding and fixing software defects. 
+Collaboration: Work closely with cross-functional teams, including product management, operations, and other engineering teams, to deliver high-quality cloud solutions. 
+Documentation: Create and maintain comprehensive documentation for software designs, APIs, and testing procedures. Develop, modify, and review test plans. 
+Continuous Improvement: Identify and implement improvements in software development processes, tools, and methodologies. 
+Support: Provide support for cloud marketplace offerings, including troubleshooting and resolving customer issues with a sense of urgency. 
+Job Requirements
+Technical Skills: 
+
+•    Proficiency in programming languages such as C, C++, Python, scripting, etc. 
+•    Knowledge of or experience working on Linux, AWS/Azure/GCP and Kubernetes 
+•    Knowledge of or experience with SQL Document Databases (e.g., Mongo DB, Cassandra, Cosmos DB, Document DB) 
+•    Knowledge of CI/CD pipelines and tools (e.g., Jenkins, GitLab CI) 
+•    Familiarity with infrastructure as code (IaC) tools (e.g., Terraform, CloudFormation, ARM) 
+•    Experience with automated testing frameworks and tools 
+
+Soft Skills: 
+•    Strong problem-solving and analytical skills. 
+•    Good communication and collaboration skills. 
+•    Ability to work independently and as part of a team. 
+•    Attention to detail and commitment to quality. 
+
+Additional Details
+
+Job Posting Info: This is a pipeline position that will be opened on a recurring basis and used to fill roles aligned with the required skill sets. 
+Program Dates: This is full-time role with a flexible start date in 2025. Recruiting efforts will be ongoing until specific teams find an ideal match. 
+Thrive Together: NetApp’s approach to in-person and remote work will be a flexible hybrid model that emphasizes flexibility for employees and puts our talent first.
+Timeline
+
+Applications open: December 2024    
+Applications close: This application will close mid-March 2025   
+Interviews begin: January 2025 and will continue on a rolling basis
+Education & Experience
+Typically requires a Bachelor of Science Degree in Electrical Engineering or Computer Science or equivalent experience and 0-2 years related experience.
+
+Compensation
+The base salary range for this position is $100,980 - $150,260 and will be determined by the candidate's location, qualifications, experience, and education. Final compensation packages are competitive and in line with industry standards, reflecting a variety of factors, and include a comprehensive benefits package. This may cover Health Insurance, Life Insurance, Retirement or Pension Plans, Paid Time Off (PTO), various Leave options, Performance-Based Incentives, employee stock purchase plan, and/or restricted stocks (RSU’s), with all offerings subject to regional variations and governed by local laws, regulations, and company policies. Benefits may vary by country and region, and further details will be provided as part of the recruitment process.

@@ -3,12 +3,12 @@ import re
 from jinja2 import Template
 import subprocess
 import os
-from gpt.gpt import extractExperienceAndSkills, getRelevanceScore, getSkills, generatePoints
+from gpt import extractExperienceAndSkills, getRelevanceScore, getSkills, generatePoints, generateProject
 from datetime import datetime
 
 
-useMoreSpace = False
-useLessSpace = False
+useMoreSpace = 0
+useLessSpace = 0
 
 # Load YAML data
 def load_yaml(file_path):
@@ -35,7 +35,7 @@ def extract_patterns(latex_content):
 def handle_education(latex_content, data, education_latex_file):
     education_latex_og = read_latex(education_latex_file)
     final_education_latex = []
-    global useMoreSpace
+    global useMoreSpace, useLessSpace
     useMoreSpace = (len(data) < 2)
     for education in data:
         education_latex = education_latex_og.split("-----")[0]
@@ -47,6 +47,11 @@ def handle_education(latex_content, data, education_latex_file):
                 duration = f"{education['startmonth'][:3]} {education['startyear']} - {education['endmonth'][:3]} {education['endyear']}"
                 education_latex = education_latex.replace("xyzdurationxyz", duration)
         final_education_latex.append(education_latex)
+
+    if len(final_education_latex) < 2:
+        useMoreSpace += 1
+    elif len(final_education_latex) > 2: 
+        useLessSpace += 1
 
     inbetween_latex = education_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
     final_education_latex = inbetween_latex.join(final_education_latex)
@@ -60,9 +65,9 @@ def calculate_experience_duration(experience):
     if experience['current']:
         end_date = datetime.now()
     else:
-        end_date = datetime.strptime(f"{experience['endmonth']} {experience['endyear']}", "%b %Y")
+        end_date = datetime.strptime(f"{experience['endmonth']} {experience['endyear']}", "%m %Y")
 
-    start_date = datetime.strptime(f"{experience['startmonth']} {experience['startyear']}", "%b %Y")
+    start_date = datetime.strptime(f"{experience['startmonth']} {experience['startyear']}", "%m %Y")
     # Calculate the difference in years
     duration = end_date - start_date
     years = duration.days / 365.25  # Approximate years considering leap years
@@ -75,10 +80,12 @@ def handle_experience(latex_content, data, keywords, jobdescription, experience_
     # Sort experiences by start date in descending order
     sorted_experiences = sorted(data, key=lambda x: x[0], reverse=True)
 
+    global useLessSpace, useMoreSpace 
     if len(data) > 3:
-        useLessSpace = True
+        useLessSpace += 1
     elif len(data) < 3:
-        useMoreSpace = True
+        useMoreSpace += 1
+    
     
     # Read the original LaTeX template for experience
     experience_latex_og = read_latex(experience_latex_file)
@@ -139,15 +146,19 @@ def handle_experience(latex_content, data, keywords, jobdescription, experience_
     return latex_content
 
 # Handle Projects
-def handle_projects(latex_content, data, projects_latex_file):
+def handle_projects(latex_content, data, points_count, jobdescription, keywords, projects_latex_file):
+    # Read the latex
     projects_latex_og = read_latex(projects_latex_file)
     final_projects_latex = []
-    for project in data:
+    for index, project in enumerate(data):
+        project = project[1]
+        points = generatePoints(project, "Project", jobdescription, keywords, points_count[index])
+
         project_latex = projects_latex_og.split("-----")[0]
         extracted_patterns = list(set(extract_patterns(project_latex)))
         for pattern in extracted_patterns:
             if pattern == "points":
-                points = "\n".join([r"\item " + point.replace('%', r'\%').replace('$', r'\$') for point in project['points']]) if project['points'] else r"\item No points available."
+                points = "\n".join([r"\item " + point.replace('%', r'\%').replace('$', r'\$') for point in points]) if points else r"\item No points available."
                 project_latex = project_latex.replace("xyzpointsxyz", points)
             else:
                 project_latex = project_latex.replace(f"xyz{pattern}xyz", project[pattern])
@@ -165,7 +176,17 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
     # Extract xyz___xyz patterns from templates
     extracted_patterns = list(set(extract_patterns(latex_content)))
     years_of_experience, skills_required, keywords = extractExperienceAndSkills(jobdescription)
-    print(keywords)
+
+    # Adding project to the last position, since that's where the space handling is done
+    extracted_patterns.remove("projects")
+    extracted_patterns.append("projects")
+
+    for pattern in extracted_patterns:
+
+        # Append the simple ones
+        if pattern not in ['experience', 'education', 'projects', 'skills']:
+            pass 
+
     for pattern in extracted_patterns:
 
         # Append the simple ones
@@ -240,19 +261,43 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
                 score = getRelevanceScore(jobdescription, str(project))
                 project_scores.append((score, project))
 
-            # Filter projects with a score of at least 70
-            filtered_projects = [proj for score, proj in project_scores if score >= 70]
-
             # Sort the filtered projects by score in descending order
-            sorted_projects = sorted(filtered_projects, key=lambda x: project_scores[project_scores.index((score, x))][0], reverse=True)
+            sorted_projects = sorted(project_scores, key=lambda x: x[0], reverse=True)
 
             # Select at most two projects
             selected_projects = sorted_projects[:2] if len(sorted_projects) >= 2 else sorted_projects
 
-            if not useLessSpace:
-                pass
+            # Define how much space is remaining
+            space = useMoreSpace - useLessSpace
 
-            latex_content = handle_projects(latex_content, selected_projects, os.path.join(template_dir, "projects.tex"))
+            # Assign Points Based on the space available and generate extra project is necessary
+            points_count = []
+            if space > 0:
+                if len(sorted_projects) < 3 or selected_projects[0][0] < 100:
+                    name, details, description = generateProject(jobdescription)
+                    generated_project = {"name": name, "details": details, "description": description}
+                    genscore = getRelevanceScore(jobdescription, str(generated_project))
+                    selected_projects.append((genscore, generated_project))
+
+                else:
+                    selected_projects = sorted_projects[:3]
+                
+                points_count = [3, 1 + space, 1 + space]
+            
+            elif space == 0:
+                points_count = [3, 3]
+            
+            elif space == -1:
+                points_count = [2, 2]
+
+            elif space == -2:
+                selected_projects = selected_projects[:1]
+                points_count = [2]
+            # Sort the projects again based on their scores
+            selected_projects.sort(key=lambda x: x[0], reverse=True)
+
+            # Generate The Latex
+            latex_content = handle_projects(latex_content, selected_projects, points_count, jobdescription, keywords, os.path.join(template_dir, "projects.tex"))
 
     return latex_content
 
@@ -260,12 +305,21 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
 
 # Compile LaTeX to PDF
 # Function to compile a LaTeX document into a PDF
-def compile_pdf(main_tex_path, output_dir):
+def compile_pdf(main_tex_path: str, output_dir: str):
     try:
-        # Run the pdflatex command to compile the LaTeX file
-        subprocess.run(["pdflatex", "-interaction=nonstopmode", "-output-directory", output_dir, main_tex_path], check=True)
-        print("PDF compiled successfully.")  # Notify user of successful compilation
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Run latexmk to compile LaTeX into PDF
+        subprocess.run(
+            ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + output_dir, main_tex_path],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        print("✅ LaTeX compilation successful!")
 
     except subprocess.CalledProcessError as e:
-        # Handle any errors that occur during the compilation process
-        print("Error during PDF compilation:", e)
+        print(f"❌ Error compiling LaTeX: {e.stderr.decode()}")
+        raise RuntimeError("LaTeX compilation failed!")
