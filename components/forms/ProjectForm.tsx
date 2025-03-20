@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 interface Project {
   name: string;
@@ -9,11 +9,28 @@ interface Project {
   details: string;
 }
 
-const ProjectForm = ({ nextStep, prevStep, onChange }: { nextStep: () => void; prevStep: () => void; onChange: (data: any) => void }) => {
+const ProjectForm = ({
+  nextStep,
+  prevStep,
+  onChange,
+  initialData = [],
+}: {
+  nextStep: () => void;
+  prevStep: () => void;
+  onChange: (data: any) => void;
+  initialData?: Project[];
+}) => {
   const [projectList, setProjectList] = useState<Project[]>([
-    { name: "", description: "", link: "", details: "" },
+    { name: "", description: "", link: "", details: "" }
   ]);
+
   const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (initialData.length > 0) {
+      setProjectList(initialData);
+    }
+  }, [initialData]);
 
   const handleChange = (index: number, field: keyof Project, value: string) => {
     const updatedList = [...projectList];
@@ -35,7 +52,7 @@ const ProjectForm = ({ nextStep, prevStep, onChange }: { nextStep: () => void; p
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onChange(projectList);
+    onChange(projectList); // Save project data
     nextStep();
   };
 
@@ -55,10 +72,10 @@ const ProjectForm = ({ nextStep, prevStep, onChange }: { nextStep: () => void; p
             />
           </div>
           <div className="mb-4">
-            <label className="block text-gray-700">Description</label>
+            <label className="block text-gray-700">Short Description</label>
             <textarea
-              value={proj.description}
-              onChange={(e) => handleChange(index, "description", e.target.value)}
+              value={proj.details}
+              onChange={(e) => handleChange(index, "details", e.target.value)}
               className="w-full p-2 border border-gray-300 rounded"
               required
             />
@@ -73,10 +90,10 @@ const ProjectForm = ({ nextStep, prevStep, onChange }: { nextStep: () => void; p
             />
           </div>
           <div className="mb-4">
-            <label className="block text-gray-700">Details</label>
+            <label className="block text-gray-700">Full Description</label>
             <textarea
-              value={proj.details}
-              onChange={(e) => handleChange(index, "details", e.target.value)}
+              value={proj.description}
+              onChange={(e) => handleChange(index, "description", e.target.value)}
               className="w-full p-2 border border-gray-300 rounded"
             />
           </div>

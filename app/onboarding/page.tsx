@@ -17,8 +17,9 @@ const Onboarding: React.FC = () => {
     education: [],
     experience: [],
     projects: [],
-    skills: {}, 
+    skills: [],
   });
+
   const { data: session } = useSession();
   const router = useRouter();
 
@@ -49,17 +50,54 @@ const Onboarding: React.FC = () => {
   const prevStep = () => setStep((prev) => prev - 1);
 
   const handleDataChange = (section: string, data: any) => {
-    setFormData({ ...formData, [section]: data });
+    setFormData((prev) => ({
+      ...prev,
+      [section]: data, // Preserve previous data while updating only the current section
+    }));
   };
 
   return (
     <div className="min-h-screen flex flex-col justify-center items-center bg-gray-100">
       <div className="w-full max-w-2xl p-6 bg-white rounded-lg shadow-md">
-        {step === 1 && <PersonalInfoForm nextStep={nextStep} onChange={(data) => handleDataChange("personalInfo", data)} />}
-        {step === 2 && <EducationForm nextStep={nextStep} prevStep={prevStep} onChange={(data) => handleDataChange("education", data)} />}
-        {step === 3 && <ExperienceForm nextStep={nextStep} prevStep={prevStep} onChange={(data) => handleDataChange("experience", data)} />}
-        {step === 4 && <ProjectForm nextStep={nextStep} prevStep={prevStep} onChange={(data) => handleDataChange("projects", data)} />} 
-        {step === 5 && <SkillForm nextStep={nextStep} prevStep={prevStep} onChange={(data) => handleDataChange("skills", data)} />}
+        {step === 1 && (
+          <PersonalInfoForm
+            nextStep={nextStep}
+            onChange={(data) => handleDataChange("personalInfo", data)}
+            initialData={formData.personalInfo} // Pass existing data
+          />
+        )}
+        {step === 2 && (
+          <EducationForm
+            nextStep={nextStep}
+            prevStep={prevStep}
+            onChange={(data) => handleDataChange("education", data)}
+            initialData={formData.education} // Pass existing data
+          />
+        )}
+        {step === 3 && (
+          <ExperienceForm
+            nextStep={nextStep}
+            prevStep={prevStep}
+            onChange={(data) => handleDataChange("experience", data)}
+            initialData={formData.experience} // Pass existing data
+          />
+        )}
+        {step === 4 && (
+          <ProjectForm
+            nextStep={nextStep}
+            prevStep={prevStep}
+            onChange={(data) => handleDataChange("projects", data)}
+            initialData={formData.projects} // Pass existing data
+          />
+        )}
+        {step === 5 && (
+          <SkillForm
+            nextStep={nextStep}
+            prevStep={prevStep}
+            onChange={(data) => handleDataChange("skills", data)}
+            initialData={formData.skills} // Pass existing data
+          />
+        )}
         {step === 6 && <Summary formData={formData} prevStep={prevStep} />}
       </div>
     </div>

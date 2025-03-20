@@ -1,8 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
-const PersonalInfoForm = ({ nextStep, onChange }: { nextStep: () => void; onChange: (data: any) => void }) => {
+const PersonalInfoForm = ({ 
+  nextStep, 
+  onChange, 
+  initialData = {} 
+}: { 
+  nextStep: () => void; 
+  onChange: (data: any) => void; 
+  initialData?: any; 
+}) => {
   const [formData, setFormData] = useState({
     city: "",
     state: "",
@@ -12,13 +20,18 @@ const PersonalInfoForm = ({ nextStep, onChange }: { nextStep: () => void; onChan
     github: "",
   });
 
+  useEffect(() => {
+    // Load initial data if available
+    setFormData((prev) => ({ ...prev, ...initialData }));
+  }, [initialData]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onChange(formData);
+    onChange(formData); // Save state before moving to next step
     nextStep();
   };
 

@@ -1,10 +1,27 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import TagInput from "@/components/ui/TagInput";
 
-const SkillForm = ({ nextStep, prevStep, onChange }: { nextStep: () => void; prevStep: () => void; onChange: (data: any) => void }) => {
+const SkillForm = ({ 
+  nextStep, 
+  prevStep, 
+  onChange, 
+  initialData = [] 
+}: { 
+  nextStep: () => void; 
+  prevStep: () => void; 
+  onChange: (data: any) => void; 
+  initialData?: string[]; 
+}) => {
   const [skills, setSkills] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Load initial data if available
+    if (initialData.length > 0) {
+      setSkills(initialData);
+    }
+  }, [initialData]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
