@@ -3,7 +3,7 @@ import re
 from jinja2 import Template
 import subprocess
 import os
-from gpt import extractExperienceAndSkills, getRelevanceScore, getSkills, generatePoints, generateProject
+from gpt import extractExperienceAndSkills, getRelevanceScore, getSkills, generatePoints
 from datetime import datetime
 
 
@@ -65,9 +65,9 @@ def calculate_experience_duration(experience):
     if experience['current']:
         end_date = datetime.now()
     else:
-        end_date = datetime.strptime(f"{experience['endmonth']} {experience['endyear']}", "%m %Y")
+        end_date = datetime.strptime(f"{experience['endmonth']} {experience['endyear']}", "%b %Y")
 
-    start_date = datetime.strptime(f"{experience['startmonth']} {experience['startyear']}", "%m %Y")
+    start_date = datetime.strptime(f"{experience['startmonth']} {experience['startyear']}", "%b %Y")
     # Calculate the difference in years
     duration = end_date - start_date
     years = duration.days / 365.25  # Approximate years considering leap years
@@ -270,19 +270,13 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
             # Define how much space is remaining
             space = useMoreSpace - useLessSpace
 
-            # Assign Points Based on the space available and generate extra project is necessary
+            # Assign Points Based on the space available
+            # NOTE: Removed fake project generation - only use user's actual projects
             points_count = []
             if space > 0:
-                if len(sorted_projects) < 3 or selected_projects[0][0] < 100:
-                    name, details, description = generateProject(jobdescription)
-                    generated_project = {"name": name, "details": details, "description": description}
-                    genscore = getRelevanceScore(jobdescription, str(generated_project))
-                    selected_projects.append((genscore, generated_project))
-
-                else:
-                    selected_projects = sorted_projects[:3]
-                
-                points_count = [3, 1 + space, 1 + space]
+                # Select up to 3 real projects if available
+                selected_projects = sorted_projects[:3] if len(sorted_projects) >= 3 else sorted_projects
+                points_count = [3, 1 + space, 1 + space][:len(selected_projects)]
             
             elif space == 0:
                 points_count = [3, 3]

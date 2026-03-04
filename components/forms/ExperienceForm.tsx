@@ -1,6 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
+
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const currentYear = new Date().getFullYear();
+const years = Array.from({ length: 30 }, (_, i) => `${currentYear - i}`);
 
 interface Experience {
   position: string;
@@ -11,10 +15,9 @@ interface Experience {
   description: string;
 }
 
-const months = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-];
-const years = Array.from({ length: 50 }, (_, index) => `${new Date().getFullYear() - index}`);
+const emptyExperience: Experience = {
+  position: "", company: "", start_date: "", end_date: "", current: false, description: ""
+};
 
 const ExperienceForm = ({
   nextStep,
@@ -27,11 +30,7 @@ const ExperienceForm = ({
   onChange: (data: any) => void;
   initialData?: Experience[];
 }) => {
-  const [experienceList, setExperienceList] = useState<Experience[]>([
-    { position: "", company: "", start_date: "", end_date: "", current: false, description: "" }
-  ]);
-  
-  const formRef = useRef<HTMLFormElement>(null);
+  const [experienceList, setExperienceList] = useState<Experience[]>([{ ...emptyExperience }]);
 
   useEffect(() => {
     if (initialData.length > 0) {
@@ -39,160 +38,238 @@ const ExperienceForm = ({
     }
   }, [initialData]);
 
-  const handleTextChange = (index: number, field: keyof Omit<Experience, "current">, value: string) => {
-    const updatedList = [...experienceList];
-    updatedList[index][field] = value;
-    setExperienceList(updatedList);
+  const handleChange = (index: number, field: keyof Experience, value: any) => {
+    setExperienceList((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      if (field === "current" && value === true) {
+        updated[index].end_date = "";
+      }
+      return updated;
+    });
   };
 
-  const handleCheckboxChange = (index: number, checked: boolean) => {
-    const updatedList = [...experienceList];
-    updatedList[index].current = checked;
-    
-    if (checked) {
-      updatedList[index].end_date = ""; // Clear end date if currently working
-    }
-
-    setExperienceList(updatedList);
+  const handleDateChange = (index: number, type: "start" | "end", part: "month" | "year", value: string) => {
+    const field = type === "start" ? "start_date" : "end_date";
+    const current = experienceList[index][field] || "";
+    const [month, year] = current.split(" ");
+    const newValue = part === "month" ? `${value} ${year || ""}` : `${month || ""} ${value}`;
+    handleChange(index, field, newValue.trim());
   };
 
   const addExperience = () => {
-    setExperienceList([...experienceList, { position: "", company: "", start_date: "", end_date: "", current: false, description: "" }]);
-    setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }, 100);
+    setExperienceList([...experienceList, { ...emptyExperience }]);
   };
 
   const removeExperience = (index: number) => {
-    const updatedList = experienceList.filter((_, i) => i !== index);
-    setExperienceList(updatedList);
+    if (experienceList.length > 1) {
+      setExperienceList(experienceList.filter((_, i) => i !== index));
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onChange(experienceList); // Save experience data
+    onChange(experienceList);
+    nextStep();
+  };
+
+  const handleSkip = () => {
+    onChange([]);
     nextStep();
   };
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className="max-h-[70vh] overflow-auto">
-      <h2 className="text-2xl font-bold mb-4">Work Experience</h2>
-      {experienceList.map((exp, index) => (
-        <div key={index} className="mb-6 border-b pb-4 relative">
-          <div className="mb-4">
-            <label className="block text-gray-700">Position</label>
-            <input
-              type="text"
-              value={exp.position}
-              onChange={(e) => handleTextChange(index, "position", e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded"
-              required
-            />
-          </div>
-          <div className="mb-4">
-            <label className="block text-gray-700">Company</label>
-            <input
-              type="text"
-              value={exp.company}
-              onChange={(e) => handleTextChange(index, "company", e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded"
-              required
-            />
-          </div>
-          <div className="flex gap-4">
-            <div className="mb-4">
-              <label className="block text-gray-700">Start Date</label>
-              <div className="flex gap-2">
-                <select
-                  value={exp.start_date.split(" ")[0] || ""}
-                  onChange={(e) => handleTextChange(index, "start_date", `${e.target.value} ${exp.start_date.split(" ")[1] || ""}`)}
-                  className="w-1/2 p-2 border border-gray-300 rounded"
-                >
-                  <option value="">Month</option>
-                  {months.map((month) => (
-                    <option key={month} value={month}>{month}</option>
-                  ))}
-                </select>
-                <select
-                  value={exp.start_date.split(" ")[1] || ""}
-                  onChange={(e) => handleTextChange(index, "start_date", `${exp.start_date.split(" ")[0] || ""} ${e.target.value}`)}
-                  className="w-1/2 p-2 border border-gray-300 rounded"
-                >
-                  <option value="">Year</option>
-                  {years.map((year) => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Header */}
+      <div className="text-center mb-6">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 mb-4 shadow-lg shadow-violet-500/30">
+          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Work Experience</h2>
+        <p className="text-gray-500 mt-1">Add your professional background</p>
+      </div>
+
+      <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
+        {experienceList.map((exp, index) => (
+          <div key={index} className="p-5 bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-gray-100 relative">
+            {experienceList.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeExperience(index)}
+                className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+
+            {/* Position & Company */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Job Title <span className="text-violet-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={exp.position}
+                  onChange={(e) => handleChange(index, "position", e.target.value)}
+                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all"
+                  placeholder="Software Engineer"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Company <span className="text-violet-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={exp.company}
+                  onChange={(e) => handleChange(index, "company", e.target.value)}
+                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all"
+                  placeholder="Google"
+                  required
+                />
               </div>
             </div>
-            {!exp.current && ( // Hide end date if "Currently Working Here" is checked
-              <div className="mb-4">
-                <label className="block text-gray-700">End Date</label>
+
+            {/* Dates & Current */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date</label>
                 <div className="flex gap-2">
                   <select
-                    value={exp.end_date.split(" ")[0] || ""}
-                    onChange={(e) => handleTextChange(index, "end_date", `${e.target.value} ${exp.end_date.split(" ")[1] || ""}`)}
-                    className="w-1/2 p-2 border border-gray-300 rounded"
+                    value={exp.start_date?.split(" ")[0] || ""}
+                    onChange={(e) => handleDateChange(index, "start", "month", e.target.value)}
+                    className="flex-1 px-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all text-sm"
                   >
                     <option value="">Month</option>
-                    {months.map((month) => (
-                      <option key={month} value={month}>{month}</option>
-                    ))}
+                    {months.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                   <select
-                    value={exp.end_date.split(" ")[1] || ""}
-                    onChange={(e) => handleTextChange(index, "end_date", `${exp.end_date.split(" ")[0] || ""} ${e.target.value}`)}
-                    className="w-1/2 p-2 border border-gray-300 rounded"
+                    value={exp.start_date?.split(" ")[1] || ""}
+                    onChange={(e) => handleDateChange(index, "start", "year", e.target.value)}
+                    className="flex-1 px-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all text-sm"
                   >
                     <option value="">Year</option>
-                    {years.map((year) => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
+                    {years.map((y) => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
               </div>
-            )}
-          </div>
-          <div className="mb-4">
-            <label className="block text-gray-700">Description</label>
-            <textarea
-              value={exp.description}
-              onChange={(e) => handleTextChange(index, "description", e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
-          <div className="mb-4">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={exp.current}
-                onChange={(e) => handleCheckboxChange(index, e.target.checked)}
-                className="mr-2"
-              />
-              Currently Working Here
+
+              {!exp.current && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">End Date</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={exp.end_date?.split(" ")[0] || ""}
+                      onChange={(e) => handleDateChange(index, "end", "month", e.target.value)}
+                      className="flex-1 px-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all text-sm"
+                    >
+                      <option value="">Month</option>
+                      {months.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <select
+                      value={exp.end_date?.split(" ")[1] || ""}
+                      onChange={(e) => handleDateChange(index, "end", "year", e.target.value)}
+                      className="flex-1 px-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all text-sm"
+                    >
+                      <option value="">Year</option>
+                      {years.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {exp.current && (
+                <div className="flex items-end">
+                  <span className="px-4 py-2.5 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-medium">
+                    Currently Working Here
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Current Toggle */}
+            <label className="flex items-center gap-3 mb-4 cursor-pointer group">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={exp.current}
+                  onChange={(e) => handleChange(index, "current", e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-violet-600 transition-colors" />
+                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5" />
+              </div>
+              <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">
+                I currently work here
+              </span>
             </label>
+
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                What did you do? <span className="text-gray-400 font-normal">(brief overview, AI will enhance it)</span>
+              </label>
+              <textarea
+                value={exp.description}
+                onChange={(e) => handleChange(index, "description", e.target.value)}
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all resize-none"
+                rows={3}
+                placeholder="Built REST APIs, led a team of 3, improved performance by 40%..."
+              />
+            </div>
           </div>
-          {index > 0 && (
-            <button
-              type="button"
-              onClick={() => removeExperience(index)}
-              className="absolute top-0 right-0 p-2 text-red-500 hover:text-red-700"
-            >
-              Remove
-            </button>
-          )}
-        </div>
-      ))}
-      <button type="button" onClick={addExperience} className="mb-4 p-2 bg-green-500 text-white rounded">
+        ))}
+      </div>
+
+      {/* Add More */}
+      <button
+        type="button"
+        onClick={addExperience}
+        className="w-full py-3 border-2 border-dashed border-gray-200 text-gray-500 hover:border-violet-300 hover:text-violet-600 hover:bg-violet-50 rounded-xl transition-all flex items-center justify-center gap-2 font-medium"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+        </svg>
         Add Another Experience
       </button>
-      <div className="flex justify-between">
-        <button type="button" onClick={prevStep} className="p-2 bg-gray-300 rounded">
+
+      {/* Navigation */}
+      <div className="flex justify-between items-center pt-4">
+        <button
+          type="button"
+          onClick={prevStep}
+          className="px-6 py-2.5 text-gray-600 font-medium rounded-xl hover:bg-gray-100 transition-colors flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+          </svg>
           Back
         </button>
-        <button type="submit" className="p-2 bg-blue-500 text-white rounded">
-          Next
-        </button>
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleSkip}
+            className="px-6 py-2.5 text-gray-500 font-medium rounded-xl hover:bg-gray-100 transition-colors"
+          >
+            Skip for now
+          </button>
+          <button
+            type="submit"
+            className="px-8 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
+          >
+            Continue
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </button>
+        </div>
       </div>
     </form>
   );

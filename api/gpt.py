@@ -17,13 +17,26 @@ subskilldict = defaultdict(list, {
 
 load_dotenv()  # Load environment variables from a .env file
 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_KEY"),  # This is the default and can be omitted
-)
+# Flexible LLM configuration - supports OpenAI, Azure, UF Navigator, or any OpenAI-compatible API
+def get_llm_client():
+    """Create an OpenAI-compatible client based on environment configuration."""
+    base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        raise ValueError("No API key found. Set LLM_API_KEY, OPENAI_KEY, or OPENAI_API_KEY environment variable.")
+
+    return OpenAI(base_url=base_url, api_key=api_key)
+
+def get_model_name():
+    """Get the model name from environment or use default."""
+    return os.getenv("LLM_MODEL", "gpt-4o-mini")
+
+client = get_llm_client()
 
 def getKeyWords(jobdescription: str) -> list:
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=get_model_name(),
         messages=[
             {"role": "user", "content": f"Extract the 20 most important key words from the following job description and return them as a comma-separated list: {jobdescription}"}
         ]
@@ -33,7 +46,7 @@ def getKeyWords(jobdescription: str) -> list:
 
 def getJobField(jobdescription: str) -> str:
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=get_model_name(),
         messages=[
             {"role": "user", "content": f"Classify the following job description into one of the following fields in one word: software, ai, engineering, management, sales, or other. Job description: {jobdescription}"}
         ]
@@ -45,7 +58,7 @@ def getSkills(jobdescription: str, skills: str) -> dict:
     field = getJobField(jobdescription)
     subskills = subskilldict[field]
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=get_model_name(),
         messages=[
             {"role": "user", "content": f"Consider these job description: {jobdescription}. Consider these skills: {skills} as skills1. Now consider all the skills used by the companies for this positions as skills2.  Organize the skills1 and skills2 into four subsections: {subskills}. Provide a concise output in the format <Subskill>:<skills> (comma-separated). I need exactly {len(subskills)} lines, one for each subskill, with no extra words. Include all the skills which are even remotely related exclude only if it is extremely irrelevant."}
         ]
@@ -55,7 +68,7 @@ def getSkills(jobdescription: str, skills: str) -> dict:
 
 def getRelevanceScore(jobdescription: str, experience_or_project: str) -> int:
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=get_model_name(),
         messages=[
             {
                 "role": "user",
@@ -74,7 +87,7 @@ def getRelevanceScore(jobdescription: str, experience_or_project: str) -> int:
 
 def extractExperienceAndSkills(jobdescription: str) -> dict:
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=get_model_name(),
         messages=[
             {"role": "user", 
              "content": f"""From the following job description, extract the required years of experience, relevant skills, and top 20 keywords. Job description: {jobdescription}.
