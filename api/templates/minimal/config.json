@@ -1,0 +1,10 @@
+{
+  "id": "minimal",
+  "name": "Minimal",
+  "description": "Maximum white space, distraction-free design",
+  "ats_compliant": true,
+  "section_order": ["experience", "projects", "skills", "education"],
+  "supports_two_page": true,
+  "font": "Computer Modern",
+  "margins": "0.75in"
+}

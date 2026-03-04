@@ -1,0 +1,46 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[left=0.75in, right=0.75in, top=0.6in, bottom=0.6in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fontawesome}
+
+% Minimal section styling - just bold text, no lines
+\titleformat{\section}{\bfseries\normalsize\uppercase}{}{0em}{}
+\titlespacing*{\section}{0pt}{14pt}{8pt}
+
+\setlist[itemize]{leftmargin=12pt, itemsep=0pt, topsep=3pt, parsep=0pt}
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=black}
+
+% Remove paragraph indentation
+\setlength{\parindent}{0pt}
+
+\begin{document}
+\pagestyle{empty}
+
+% Minimal header
+\begin{center}
+    {\Large\bfseries xyznamexyz}\\[6pt]
+    {\small xyzemailxyz \quad xyznumberxyz \quad xyzlinkedinxyz \quad xyzgithubxyz}
+\end{center}
+
+\vspace{8pt}
+
+\section*{Experience}
+xyzexperiencexyz
+
+\section*{Projects}
+xyzprojectsxyz
+
+\section*{Skills}
+\begin{itemize}
+   xyzskillsxyz
+\end{itemize}
+
+\section*{Education}
+\begin{itemize}
+    xyzeducationxyz
+\end{itemize}
+{\small\textit{Coursework: xyzrelevantcourseworkxyz}}
+
+\end{document}

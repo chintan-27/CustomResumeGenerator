@@ -1,0 +1,50 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[left=0.5in, right=0.5in, top=0.5in, bottom=0.5in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fontawesome}
+\usepackage{xcolor}
+
+% Modern section styling with colored underline
+\definecolor{sectioncolor}{RGB}{70, 130, 180}
+\titleformat{\section}{\bfseries\large\color{sectioncolor}}{}{0em}{}[\color{sectioncolor}\titlerule]
+\titlespacing*{\section}{0pt}{12pt}{6pt}
+
+\setlist[itemize]{leftmargin=*, itemsep=-1pt, topsep=2pt}
+\hypersetup{colorlinks=true, linkcolor=sectioncolor, urlcolor=sectioncolor}
+
+\begin{document}
+\pagestyle{empty}
+
+% Header with clean layout
+\begin{center}
+    {\LARGE\bfseries xyznamexyz} \\[8pt]
+    \href{mailto:xyzemailxyz}{xyzemailxyz} \textbar{} xyznumberxyz \textbar{} \href{xyzlinkedinxyz}{LinkedIn} \textbar{} \href{xyzgithubxyz}{GitHub} \textbar{} \href{xyzwebsitexyz}{Portfolio}
+\end{center}
+
+\vspace{-10pt}
+
+\section*{Skills}
+\vspace{-3pt}
+\begin{itemize}
+   xyzskillsxyz
+\end{itemize}
+
+\section*{Experience}
+\vspace{-3pt}
+xyzexperiencexyz
+
+\section*{Projects}
+\vspace{-3pt}
+xyzprojectsxyz
+
+\section*{Education}
+\vspace{-3pt}
+\begin{itemize}
+    xyzeducationxyz
+\end{itemize}
+\vspace{-5pt}
+\textit{Relevant Coursework:} xyzrelevantcourseworkxyz
+
+\end{document}

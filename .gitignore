@@ -39,5 +39,31 @@ __pycache__
 api/.env
 api/__pycache__
 api/instance
-output/*
 instance/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.out
+
+# Output PDFs (generated, not source)
+api/output/*.pdf
+api/output/*.tex
+api/output/*.aux
+api/output/*.log
+api/output/*.fdb_latexmk
+api/output/*.fls
+output/*.pdf
+
+# SQLite database
+*.db
+
+# Python
+*.pyc
+__pycache__/
+.env
+.claude
+CLAUDE.md

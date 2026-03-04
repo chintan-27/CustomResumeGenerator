@@ -1,0 +1,10 @@
+{
+  "id": "ats-optimized",
+  "name": "ATS Optimized",
+  "description": "Plain text-like format for maximum ATS compatibility",
+  "ats_compliant": true,
+  "section_order": ["skills", "experience", "projects", "education"],
+  "supports_two_page": true,
+  "font": "Computer Modern",
+  "margins": "0.5in"
+}
