@@ -149,21 +149,53 @@ const ProjectForm = ({
     setImportError("");
     setImportingIndex(index);
     try {
-      const res = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`);
-      if (!res.ok) throw new Error("Repo not found or is private");
-      const data = await res.json();
-      const langRes = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/languages`);
+      const [repoRes, langRes, readmeRes] = await Promise.all([
+        fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`, {
+          headers: { Accept: "application/vnd.github.mercy-preview+json" },
+        }),
+        fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/languages`),
+        fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/readme`),
+      ]);
+
+      if (!repoRes.ok) throw new Error("Repo not found or is private");
+      const data = await repoRes.json();
+
       const langs = langRes.ok ? await langRes.json() : {};
-      const langList = Object.keys(langs).slice(0, 6).join(", ");
+      const langList = Object.keys(langs).slice(0, 6);
       const topics: string[] = data.topics || [];
-      const combined = [...langList.split(", ").filter(Boolean), ...topics.slice(0, 4)];
-      const tech = combined.filter((v, i, a) => a.indexOf(v) === i).join(", ");
+      const tech = [...langList, ...topics.slice(0, 4)]
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .join(", ");
+
+      // Parse README for a description
+      let readmeText = "";
+      if (readmeRes.ok) {
+        const readmeData = await readmeRes.json();
+        try {
+          const decoded = atob(readmeData.content.replace(/\n/g, ""));
+          // Strip markdown: headings, badges, code fences, links → text, extra whitespace
+          readmeText = decoded
+            .replace(/```[\s\S]*?```/g, "")
+            .replace(/`[^`]+`/g, "")
+            .replace(/!\[.*?\]\(.*?\)/g, "")
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+            .replace(/^#{1,6}\s+/gm, "")
+            .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim()
+            .slice(0, 400);
+        } catch { /* atob failed — skip README */ }
+      }
+
+      // Prefer README description over the short repo description
+      const description = readmeText || data.description || "";
+
       setProjectList((prev) => {
         const updated = [...prev];
         updated[index] = {
           ...updated[index],
           name: updated[index].name || data.name?.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || "",
-          description: updated[index].description || data.description || "",
+          description: updated[index].description || description,
           details: updated[index].details || tech,
           link: `https://github.com/${parsed.owner}/${parsed.repo}`,
         };
@@ -203,12 +235,41 @@ const ProjectForm = ({
     });
   };
 
-  const addSelectedRepos = () => {
+  const [addingRepos, setAddingRepos] = useState(false);
+
+  const addSelectedRepos = async () => {
     const selected = repos.filter((r) => selectedRepoIds.has(r.id));
-    const newProjects = selected.map(repoToProject);
-    // Replace the single empty project if it's still blank, else append
+    setAddingRepos(true);
+
+    // Fetch READMEs for all selected repos in parallel
+    const withReadme = await Promise.all(
+      selected.map(async (repo) => {
+        const base = repoToProject(repo);
+        try {
+          const res = await fetch(`https://api.github.com/repos/${repo.full_name}/readme`);
+          if (!res.ok) return base;
+          const data = await res.json();
+          const decoded = atob(data.content.replace(/\n/g, ""));
+          const clean = decoded
+            .replace(/```[\s\S]*?```/g, "")
+            .replace(/`[^`]+`/g, "")
+            .replace(/!\[.*?\]\(.*?\)/g, "")
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+            .replace(/^#{1,6}\s+/gm, "")
+            .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim()
+            .slice(0, 400);
+          return { ...base, description: clean || base.description };
+        } catch {
+          return base;
+        }
+      })
+    );
+
+    setAddingRepos(false);
     const filtered = projectList.filter((p) => p.name.trim() || p.description.trim() || p.link.trim());
-    const combined = [...filtered, ...newProjects];
+    const combined = [...filtered, ...withReadme];
     setProjectList(combined.length ? combined : [{ ...emptyProject }]);
     setErrors(combined.map(() => ({})));
     onChange(combined);
@@ -288,9 +349,17 @@ const ProjectForm = ({
                   <button
                     type="button"
                     onClick={addSelectedRepos}
-                    className="px-3 py-1.5 bg-[#1a1a1a] text-white text-xs font-semibold rounded-full hover:bg-[#2d6a4f] transition-colors flex-shrink-0"
+                    disabled={addingRepos}
+                    className="px-3 py-1.5 bg-[#1a1a1a] text-white text-xs font-semibold rounded-full hover:bg-[#2d6a4f] transition-colors flex-shrink-0 flex items-center gap-1.5 disabled:opacity-70"
                   >
-                    Add {selectedRepoIds.size} selected
+                    {addingRepos ? (
+                      <>
+                        <div className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                        Fetching READMEs…
+                      </>
+                    ) : (
+                      `Add ${selectedRepoIds.size} selected`
+                    )}
                   </button>
                 )}
               </div>
