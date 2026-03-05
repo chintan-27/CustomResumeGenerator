@@ -9,6 +9,19 @@ interface Project {
   details: string;
 }
 
+interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  language: string | null;
+  stargazers_count: number;
+  updated_at: string;
+  fork: boolean;
+  topics: string[];
+}
+
 const emptyProject: Project = { name: "", description: "", link: "", details: "" };
 
 const isValidUrl = (url: string) => {
@@ -16,7 +29,6 @@ const isValidUrl = (url: string) => {
   try { new URL(url.startsWith("http") ? url : `https://${url}`); return true; } catch { return false; }
 };
 
-// Extract owner/repo from any GitHub URL format
 const parseGitHubUrl = (url: string): { owner: string; repo: string } | null => {
   try {
     const u = new URL(url.startsWith("http") ? url : `https://${url}`);
@@ -27,21 +39,54 @@ const parseGitHubUrl = (url: string): { owner: string; repo: string } | null => 
   } catch { return null; }
 };
 
+const extractGitHubUsername = (githubUrl: string): string | null => {
+  if (!githubUrl) return null;
+  try {
+    const url = new URL(githubUrl.startsWith("http") ? githubUrl : `https://${githubUrl}`);
+    const parts = url.pathname.replace(/^\//, "").split("/").filter(Boolean);
+    return parts[0] || null;
+  } catch { return null; }
+};
+
+const repoToProject = (repo: GitHubRepo): Project => {
+  const techParts = [
+    ...(repo.language ? [repo.language] : []),
+    ...(repo.topics || []).slice(0, 5),
+  ].filter((v, i, a) => a.indexOf(v) === i);
+  return {
+    name: repo.name.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    description: repo.description || "",
+    link: repo.html_url,
+    details: techParts.join(", "),
+  };
+};
+
 const ProjectForm = ({
   nextStep,
   prevStep,
   onChange,
   initialData = [],
+  githubUsername,
 }: {
   nextStep: () => void;
   prevStep: () => void;
   onChange: (data: any) => void;
   initialData?: Project[];
+  githubUsername?: string | null;
 }) => {
   const [projectList, setProjectList] = useState<Project[]>([{ ...emptyProject }]);
   const [errors, setErrors] = useState<Record<string, string>[]>([{}]);
   const [importingIndex, setImportingIndex] = useState<number | null>(null);
   const [importError, setImportError] = useState<string>("");
+
+  // GitHub repo browser state
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [reposError, setReposError] = useState("");
+  const [selectedRepoIds, setSelectedRepoIds] = useState<Set<number>>(new Set());
+  const [repoSearch, setRepoSearch] = useState("");
+  const [hideForks, setHideForks] = useState(true);
 
   useEffect(() => {
     if (initialData.length > 0) {
@@ -94,36 +139,25 @@ const ProjectForm = ({
     nextStep();
   };
 
-  const handleSkip = () => {
-    onChange([]);
-    nextStep();
-  };
+  const handleSkip = () => { onChange([]); nextStep(); };
 
+  // ── Per-repo auto-fill (existing behaviour) ──────────────────────────────
   const importFromGitHub = async (index: number) => {
     const url = projectList[index].link;
     const parsed = parseGitHubUrl(url);
-    if (!parsed) {
-      setImportError("Paste a valid GitHub repo URL first (e.g. github.com/user/repo)");
-      return;
-    }
+    if (!parsed) { setImportError("Paste a valid GitHub repo URL first"); return; }
     setImportError("");
     setImportingIndex(index);
     try {
       const res = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`);
       if (!res.ok) throw new Error("Repo not found or is private");
       const data = await res.json();
-
-      // Also fetch languages
       const langRes = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/languages`);
       const langs = langRes.ok ? await langRes.json() : {};
       const langList = Object.keys(langs).slice(0, 6).join(", ");
-
-      // Build tech string from languages + topics
       const topics: string[] = data.topics || [];
       const combined = [...langList.split(", ").filter(Boolean), ...topics.slice(0, 4)];
-      const techParts = combined.filter((v, i, a) => a.indexOf(v) === i);
-      const tech = techParts.join(", ");
-
+      const tech = combined.filter((v, i, a) => a.indexOf(v) === i).join(", ");
       setProjectList((prev) => {
         const updated = [...prev];
         updated[index] = {
@@ -137,10 +171,56 @@ const ProjectForm = ({
       });
     } catch (err: any) {
       setImportError(err.message || "Failed to fetch repo info");
-    } finally {
-      setImportingIndex(null);
-    }
+    } finally { setImportingIndex(null); }
   };
+
+  // ── GitHub repo browser ───────────────────────────────────────────────────
+  const openBrowser = async () => {
+    setBrowserOpen(true);
+    if (repos.length > 0) return; // already loaded
+    const username = githubUsername;
+    if (!username) return;
+    setReposLoading(true);
+    setReposError("");
+    try {
+      const res = await fetch(
+        `https://api.github.com/users/${username}/repos?sort=updated&per_page=100&type=owner`,
+        { headers: { Accept: "application/vnd.github.mercy-preview+json" } }
+      );
+      if (!res.ok) throw new Error(res.status === 404 ? "GitHub user not found" : "Failed to fetch repos");
+      const data: GitHubRepo[] = await res.json();
+      setRepos(data);
+    } catch (err: any) {
+      setReposError(err.message || "Could not load repos");
+    } finally { setReposLoading(false); }
+  };
+
+  const toggleRepo = (id: number) => {
+    setSelectedRepoIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const addSelectedRepos = () => {
+    const selected = repos.filter((r) => selectedRepoIds.has(r.id));
+    const newProjects = selected.map(repoToProject);
+    // Replace the single empty project if it's still blank, else append
+    const filtered = projectList.filter((p) => p.name.trim() || p.description.trim() || p.link.trim());
+    const combined = [...filtered, ...newProjects];
+    setProjectList(combined.length ? combined : [{ ...emptyProject }]);
+    setErrors(combined.map(() => ({})));
+    onChange(combined);
+    setSelectedRepoIds(new Set());
+    setBrowserOpen(false);
+  };
+
+  const filteredRepos = repos.filter((r) => {
+    if (hideForks && r.fork) return false;
+    if (repoSearch && !r.name.toLowerCase().includes(repoSearch.toLowerCase())) return false;
+    return true;
+  });
 
   const inputClass = (err?: string) =>
     `w-full px-4 py-2.5 bg-white border rounded-xl text-[#1a1a1a] placeholder-stone-400 focus:ring-2 focus:ring-[#2d6a4f]/20 focus:border-[#2d6a4f] outline-none transition-all ${
@@ -150,7 +230,7 @@ const ProjectForm = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Header */}
-      <div className="text-center mb-6">
+      <div className="text-center mb-2">
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#0f1f18] mb-4 shadow-lg shadow-black/20">
           <svg className="w-7 h-7 text-[#4ade80]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -160,13 +240,174 @@ const ProjectForm = ({
         <p className="text-[#6b7280] mt-1">Showcase your best work</p>
       </div>
 
-      {/* GitHub import hint */}
-      <div className="flex items-start gap-3 px-4 py-3 bg-[#0f1f18] rounded-xl">
-        <svg className="w-4 h-4 text-[#4ade80] flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-        </svg>
-        <p className="text-xs text-white/70">Paste a GitHub repo URL in the link field and click <span className="text-[#4ade80] font-semibold">Auto-fill from GitHub</span> to import name, description, and tech stack automatically.</p>
-      </div>
+      {/* GitHub repo browser trigger */}
+      {githubUsername && (
+        <div>
+          <button
+            type="button"
+            onClick={openBrowser}
+            className="w-full flex items-center justify-between px-4 py-3 bg-[#0f1f18] rounded-xl text-sm font-semibold text-white hover:bg-[#162820] transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-[#4ade80]" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+              </svg>
+              Browse GitHub repos — {githubUsername}
+            </span>
+            <svg className={`w-4 h-4 text-white/50 transition-transform ${browserOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {browserOpen && (
+            <div className="mt-2 bg-white border border-stone-200 rounded-2xl overflow-hidden shadow-sm">
+              {/* Browser toolbar */}
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-100 bg-stone-50">
+                <div className="relative flex-1">
+                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={repoSearch}
+                    onChange={(e) => setRepoSearch(e.target.value)}
+                    placeholder="Search repos..."
+                    className="w-full pl-8 pr-3 py-1.5 text-sm bg-white border border-stone-200 rounded-lg outline-none focus:border-[#2d6a4f] focus:ring-1 focus:ring-[#2d6a4f]/20"
+                  />
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <div
+                    onClick={() => setHideForks((v) => !v)}
+                    className={`w-8 h-4 rounded-full transition-colors relative flex-shrink-0 ${hideForks ? "bg-[#2d6a4f]" : "bg-stone-300"}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${hideForks ? "translate-x-4" : "translate-x-0.5"}`} />
+                  </div>
+                  <span className="text-xs text-stone-500">Hide forks</span>
+                </label>
+                {selectedRepoIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={addSelectedRepos}
+                    className="px-3 py-1.5 bg-[#1a1a1a] text-white text-xs font-semibold rounded-full hover:bg-[#2d6a4f] transition-colors flex-shrink-0"
+                  >
+                    Add {selectedRepoIds.size} selected
+                  </button>
+                )}
+              </div>
+
+              {/* Repo list */}
+              <div className="max-h-72 overflow-y-auto">
+                {reposLoading ? (
+                  <div className="flex items-center justify-center py-10 gap-2 text-stone-400">
+                    <div className="w-4 h-4 border-2 border-stone-300 border-t-[#2d6a4f] rounded-full animate-spin" />
+                    <span className="text-sm">Loading repos…</span>
+                  </div>
+                ) : reposError ? (
+                  <p className="text-center py-8 text-sm text-red-500">{reposError}</p>
+                ) : filteredRepos.length === 0 ? (
+                  <p className="text-center py-8 text-sm text-stone-400">
+                    {repoSearch ? "No repos match your search" : "No public repos found"}
+                  </p>
+                ) : (
+                  <div className="divide-y divide-stone-100">
+                    {filteredRepos.map((repo) => {
+                      const isSelected = selectedRepoIds.has(repo.id);
+                      const alreadyAdded = projectList.some((p) => p.link === repo.html_url);
+                      return (
+                        <div
+                          key={repo.id}
+                          onClick={() => !alreadyAdded && toggleRepo(repo.id)}
+                          className={`flex items-start gap-3 px-4 py-3 transition-colors ${
+                            alreadyAdded
+                              ? "opacity-40 cursor-not-allowed"
+                              : isSelected
+                              ? "bg-[#2d6a4f]/5 cursor-pointer"
+                              : "hover:bg-stone-50 cursor-pointer"
+                          }`}
+                        >
+                          {/* Checkbox */}
+                          <div className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                            isSelected ? "border-[#2d6a4f] bg-[#2d6a4f]" : "border-stone-300"
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-sm font-semibold ${isSelected ? "text-[#2d6a4f]" : "text-[#1a1a1a]"}`}>
+                                {repo.name}
+                              </span>
+                              {repo.fork && (
+                                <span className="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">fork</span>
+                              )}
+                              {alreadyAdded && (
+                                <span className="text-xs text-[#2d6a4f] bg-[#2d6a4f]/10 px-1.5 py-0.5 rounded-full">added</span>
+                              )}
+                            </div>
+                            {repo.description && (
+                              <p className="text-xs text-stone-500 mt-0.5 line-clamp-1">{repo.description}</p>
+                            )}
+                            <div className="flex items-center gap-3 mt-1">
+                              {repo.language && (
+                                <span className="flex items-center gap-1 text-xs text-stone-400">
+                                  <span className="w-2 h-2 rounded-full bg-[#2d6a4f]/60 inline-block" />
+                                  {repo.language}
+                                </span>
+                              )}
+                              {repo.stargazers_count > 0 && (
+                                <span className="flex items-center gap-1 text-xs text-stone-400">
+                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 .587l3.668 7.431 8.332 1.151-6.064 5.828 1.48 8.279L12 18.897l-7.416 4.379 1.48-8.279L0 9.169l8.332-1.151z" />
+                                  </svg>
+                                  {repo.stargazers_count}
+                                </span>
+                              )}
+                              <span className="text-xs text-stone-300">
+                                {new Date(repo.updated_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Browser footer */}
+              <div className="px-4 py-2.5 border-t border-stone-100 bg-stone-50 flex items-center justify-between">
+                <span className="text-xs text-stone-400">
+                  {filteredRepos.length} repo{filteredRepos.length !== 1 ? "s" : ""}
+                  {selectedRepoIds.size > 0 && ` · ${selectedRepoIds.size} selected`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setBrowserOpen(false); setSelectedRepoIds(new Set()); }}
+                  className="text-xs text-stone-400 hover:text-stone-600 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manual import hint (when no GitHub username) */}
+      {!githubUsername && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-[#0f1f18] rounded-xl">
+          <svg className="w-4 h-4 text-[#4ade80] flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+          </svg>
+          <p className="text-xs text-white/70">
+            Paste a GitHub repo URL in the link field below and click <span className="text-[#4ade80] font-semibold">Auto-fill from GitHub</span> to import details automatically.
+          </p>
+        </div>
+      )}
 
       {importError && (
         <p className="text-xs text-red-500 flex items-center gap-1.5">
@@ -177,6 +418,7 @@ const ProjectForm = ({
         </p>
       )}
 
+      {/* Project entries */}
       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
         {projectList.map((proj, index) => (
           <div key={index} className="p-5 bg-stone-50 rounded-2xl border border-stone-200 relative">
@@ -236,7 +478,7 @@ const ProjectForm = ({
                       <div className="w-3 h-3 border border-[#2d6a4f] border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
                       </svg>
                     )}
                     {importingIndex === index ? "Importing…" : "Auto-fill from GitHub"}
@@ -297,7 +539,6 @@ const ProjectForm = ({
           </svg>
           Back
         </button>
-
         <div className="flex gap-3">
           <button
             type="button"

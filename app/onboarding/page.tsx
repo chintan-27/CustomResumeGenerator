@@ -25,6 +25,15 @@ const STEPS = [
   { id: 8, label: "Review" },
 ];
 
+const extractGitHubUsername = (githubUrl: string): string | null => {
+  if (!githubUrl) return null;
+  try {
+    const url = new URL(githubUrl.startsWith("http") ? githubUrl : `https://${githubUrl}`);
+    const parts = url.pathname.replace(/^\//, "").split("/").filter(Boolean);
+    return parts[0] || null;
+  } catch { return null; }
+};
+
 const Onboarding: React.FC = () => {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -146,7 +155,7 @@ const Onboarding: React.FC = () => {
       case 1: return <PersonalInfoForm nextStep={nextStep} onChange={(d) => handleDataChange("personalInfo", d)} initialData={formData.personalInfo} />;
       case 2: return <EducationForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("education", d)} initialData={formData.education} />;
       case 3: return <ExperienceForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("experience", d)} initialData={formData.experience} />;
-      case 4: return <ProjectForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("projects", d)} initialData={formData.projects} />;
+      case 4: return <ProjectForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("projects", d)} initialData={formData.projects} githubUsername={extractGitHubUsername((formData.personalInfo as any)?.github || "")} />;
       case 5: return <SkillForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("skills", d)} initialData={formData.skills} />;
       case 6: return <CertificationForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("certifications", d)} initialData={formData.certifications} />;
       case 7: return <PublicationForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("publications", d)} initialData={formData.publications} />;
