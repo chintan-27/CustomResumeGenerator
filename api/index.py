@@ -459,6 +459,65 @@ def get_dashboard_data():
     })
 
 # ============================================================================
+# GITHUB REPO SUMMARIZER
+# ============================================================================
+
+@app.route("/api/github/summarize-repo", methods=["POST"])
+@jwt_required()
+def summarize_github_repo():
+    """
+    Use LLM to generate a concise resume-quality description of a GitHub repo.
+    Accepts the full README text + file tree so the AI can understand the project
+    even when the README is sparse.
+    """
+    d = request.json
+    repo_name = d.get("repo_name", "")
+    repo_description = d.get("repo_description", "")  # GitHub's one-liner
+    readme = d.get("readme", "")  # Full decoded README text
+    file_tree = d.get("file_tree", [])  # List of file/dir paths
+
+    # Build context — README first, then structure
+    parts = []
+    if repo_description:
+        parts.append(f"GitHub description: {repo_description}")
+    if readme:
+        parts.append(f"README (full):\n{readme[:4000]}")
+    if file_tree:
+        tree_str = "\n".join(file_tree[:80])
+        parts.append(f"Repository file structure:\n{tree_str}")
+
+    if not parts:
+        return jsonify({"description": ""}), 200
+
+    context = "\n\n".join(parts)
+
+    prompt = f"""You are writing a project description for a developer's resume.
+
+Project name: {repo_name}
+
+{context}
+
+Write a concise 2-3 sentence description of what this project does, suitable for a resume bullet or summary.
+
+Guidelines:
+- Explain what the project accomplishes and why it's useful
+- Mention the core technologies actually used (from README or file structure)
+- Be specific — avoid vague phrases like "a web app" or "a tool"
+- If the README is thin, infer purpose from file structure and repo name
+- Do NOT invent features not supported by the provided content
+- Return ONLY the description text, no labels or preamble
+"""
+
+    try:
+        client = get_llm_client()
+        model = get_model_name()
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}])
+        description = response.choices[0].message.content.strip()
+        return jsonify({"description": description})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ============================================================================
 # CERTIFICATIONS ENDPOINTS
 # ============================================================================
 

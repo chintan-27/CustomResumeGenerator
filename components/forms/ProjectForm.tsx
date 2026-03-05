@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 
 interface Project {
   name: string;
@@ -48,6 +49,12 @@ const extractGitHubUsername = (githubUrl: string): string | null => {
   } catch { return null; }
 };
 
+const decodeReadme = (base64Content: string): string => {
+  try {
+    return atob(base64Content.replace(/\n/g, ""));
+  } catch { return ""; }
+};
+
 const repoToProject = (repo: GitHubRepo): Project => {
   const techParts = [
     ...(repo.language ? [repo.language] : []),
@@ -74,10 +81,52 @@ const ProjectForm = ({
   initialData?: Project[];
   githubUsername?: string | null;
 }) => {
+  const { data: session } = useSession();
   const [projectList, setProjectList] = useState<Project[]>([{ ...emptyProject }]);
   const [errors, setErrors] = useState<Record<string, string>[]>([{}]);
   const [importingIndex, setImportingIndex] = useState<number | null>(null);
   const [importError, setImportError] = useState<string>("");
+
+  // Fetch README + file tree and call the AI summarizer
+  const summarizeRepo = async (owner: string, repo: string, repoData: any): Promise<string> => {
+    const [readmeRes, treeRes] = await Promise.all([
+      fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, {
+        headers: { Accept: "application/vnd.github.v3+json" },
+      }),
+      fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD`, {
+        headers: { Accept: "application/vnd.github.v3+json" },
+      }),
+    ]);
+
+    const readme = readmeRes.ok ? decodeReadme((await readmeRes.json()).content ?? "") : "";
+    let fileTree: string[] = [];
+    if (treeRes.ok) {
+      const treeData = await treeRes.json();
+      fileTree = (treeData.tree as any[])
+        .filter((f) => f.type === "blob" || f.type === "tree")
+        .map((f) => f.path)
+        .slice(0, 80);
+    }
+
+    if (!readme && !fileTree.length) return repoData.description || "";
+
+    const res = await fetch("/python/github/summarize-repo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.accessToken}`,
+      },
+      body: JSON.stringify({
+        repo_name: repoData.name,
+        repo_description: repoData.description || "",
+        readme,
+        file_tree: fileTree,
+      }),
+    });
+    if (!res.ok) return readme.slice(0, 400) || repoData.description || "";
+    const data = await res.json();
+    return data.description || "";
+  };
 
   // GitHub repo browser state
   const [browserOpen, setBrowserOpen] = useState(false);
@@ -149,12 +198,11 @@ const ProjectForm = ({
     setImportError("");
     setImportingIndex(index);
     try {
-      const [repoRes, langRes, readmeRes] = await Promise.all([
+      const [repoRes, langRes] = await Promise.all([
         fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`, {
           headers: { Accept: "application/vnd.github.mercy-preview+json" },
         }),
         fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/languages`),
-        fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/readme`),
       ]);
 
       if (!repoRes.ok) throw new Error("Repo not found or is private");
@@ -167,28 +215,8 @@ const ProjectForm = ({
         .filter((v, i, a) => a.indexOf(v) === i)
         .join(", ");
 
-      // Parse README for a description
-      let readmeText = "";
-      if (readmeRes.ok) {
-        const readmeData = await readmeRes.json();
-        try {
-          const decoded = atob(readmeData.content.replace(/\n/g, ""));
-          // Strip markdown: headings, badges, code fences, links → text, extra whitespace
-          readmeText = decoded
-            .replace(/```[\s\S]*?```/g, "")
-            .replace(/`[^`]+`/g, "")
-            .replace(/!\[.*?\]\(.*?\)/g, "")
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-            .replace(/^#{1,6}\s+/gm, "")
-            .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim()
-            .slice(0, 400);
-        } catch { /* atob failed — skip README */ }
-      }
-
-      // Prefer README description over the short repo description
-      const description = readmeText || data.description || "";
+      // AI-generated description from full README + file tree
+      const description = await summarizeRepo(parsed.owner, parsed.repo, data);
 
       setProjectList((prev) => {
         const updated = [...prev];
@@ -241,26 +269,14 @@ const ProjectForm = ({
     const selected = repos.filter((r) => selectedRepoIds.has(r.id));
     setAddingRepos(true);
 
-    // Fetch READMEs for all selected repos in parallel
-    const withReadme = await Promise.all(
+    // AI-summarize all selected repos in parallel
+    const withDescription = await Promise.all(
       selected.map(async (repo) => {
         const base = repoToProject(repo);
+        const [owner, repoName] = repo.full_name.split("/");
         try {
-          const res = await fetch(`https://api.github.com/repos/${repo.full_name}/readme`);
-          if (!res.ok) return base;
-          const data = await res.json();
-          const decoded = atob(data.content.replace(/\n/g, ""));
-          const clean = decoded
-            .replace(/```[\s\S]*?```/g, "")
-            .replace(/`[^`]+`/g, "")
-            .replace(/!\[.*?\]\(.*?\)/g, "")
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-            .replace(/^#{1,6}\s+/gm, "")
-            .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim()
-            .slice(0, 400);
-          return { ...base, description: clean || base.description };
+          const description = await summarizeRepo(owner, repoName, repo);
+          return { ...base, description: description || base.description };
         } catch {
           return base;
         }
@@ -269,7 +285,7 @@ const ProjectForm = ({
 
     setAddingRepos(false);
     const filtered = projectList.filter((p) => p.name.trim() || p.description.trim() || p.link.trim());
-    const combined = [...filtered, ...withReadme];
+    const combined = [...filtered, ...withDescription];
     setProjectList(combined.length ? combined : [{ ...emptyProject }]);
     setErrors(combined.map(() => ({})));
     onChange(combined);
