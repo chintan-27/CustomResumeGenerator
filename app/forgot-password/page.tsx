@@ -37,7 +37,7 @@ const ForgotPassword: React.FC = () => {
     <div className="min-h-screen bg-[#faf9f6] flex flex-col">
       <header className="border-b border-[#e5e3de] bg-white/80 backdrop-blur px-6 py-4">
         <Link href="/" className="font-bold text-xl">
-          Resume<span className="text-[#2d6a4f]">AI</span>
+          Pari<span className="text-[#2d6a4f]">chaya</span>
         </Link>
       </header>
 

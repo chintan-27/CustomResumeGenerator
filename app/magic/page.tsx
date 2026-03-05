@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { AnimatePresence, motion } from "framer-motion";
 import JobInputStep from "@/components/magic/JobInputStep";
 import QuestionsStep from "@/components/magic/QuestionsStep";
 import ContentReviewStep from "@/components/magic/ContentReviewStep";
@@ -236,7 +237,10 @@ const MagicPage: React.FC = () => {
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
-        if (!finalRes.ok) throw new Error("Failed to generate final resume");
+        if (!finalRes.ok) {
+          const errData = await finalRes.json().catch(() => ({}));
+          throw new Error(errData.error || "Failed to generate final resume");
+        }
         const finalData = await finalRes.json();
         const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:5328";
         setPdfUrl(`${baseUrl}/${finalData.pdf_url}`);
@@ -406,7 +410,7 @@ const MagicPage: React.FC = () => {
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="font-bold text-xl">
-              Resume<span className="text-[#2d6a4f]">AI</span>
+              Pari<span className="text-[#2d6a4f]">chaya</span>
             </Link>
             <span className="hidden sm:block text-stone-300">|</span>
             <span className="hidden sm:block text-sm text-stone-400" style={{ fontFamily: "var(--font-mono)" }}>
@@ -466,7 +470,17 @@ const MagicPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="max-w-5xl mx-auto px-6 py-10 pb-24">
-        {renderStep()}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.25 }}
+          >
+            {renderStep()}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       {/* Error Toast */}

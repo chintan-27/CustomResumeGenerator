@@ -55,7 +55,7 @@ const Signup: React.FC = () => {
     setSubmitError("");
     setLoading(true);
     try {
-      const response = await fetch("python/auth/signup", {
+      const response = await fetch("/python/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: formData.name, email: formData.email, password: formData.password }),
@@ -95,12 +95,12 @@ const Signup: React.FC = () => {
   return (
     <div className="min-h-screen flex">
       {/* Left: Dark brand panel */}
-      <div className="hidden lg:flex lg:w-[44%] bg-[#0f1f18] flex-col justify-between p-12 relative overflow-hidden">
+      <div className="hidden md:flex md:w-[44%] bg-[#0f1f18] flex-col justify-between p-12 relative overflow-hidden">
         <div className="absolute top-20 right-0 w-80 h-80 rounded-full bg-[#2d6a4f] opacity-20 blur-[80px] pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-60 h-60 rounded-full bg-[#c97d3f] opacity-10 blur-[70px] pointer-events-none" />
 
         <Link href="/" className="font-bold text-xl text-white relative z-10">
-          Resume<span className="text-[#4ade80]">AI</span>
+          Pari<span className="text-[#4ade80]">chaya</span>
         </Link>
 
         <div className="relative z-10">
@@ -132,7 +132,7 @@ const Signup: React.FC = () => {
         </div>
 
         <p className="text-white/25 relative z-10" style={{ fontSize: "12px", fontFamily: "var(--font-mono)" }}>
-          50,000+ professionals use ResumeAI
+          50,000+ professionals use Parichaya
         </p>
       </div>
 
@@ -146,7 +146,7 @@ const Signup: React.FC = () => {
         >
           <div className="lg:hidden mb-8">
             <Link href="/" className="font-bold text-xl">
-              Resume<span className="text-[#2d6a4f]">AI</span>
+              Pari<span className="text-[#2d6a4f]">chaya</span>
             </Link>
           </div>
 

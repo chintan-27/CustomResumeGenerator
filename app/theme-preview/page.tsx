@@ -171,7 +171,7 @@ function ThemeCard({ theme, selected, onSelect }: { theme: typeof THEMES[0]; sel
       >
         {/* Nav */}
         <div style={{ ...s.nav, padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
-          <span style={{ ...s.logo, fontWeight: 800, fontSize: "11px" }}>ResumeAI</span>
+          <span style={{ ...s.logo, fontWeight: 800, fontSize: "11px" }}>Parichaya</span>
           <div style={{ display: "flex", gap: "6px" }}>
             <span style={{ fontSize: "9px", color: s.sub?.color, padding: "3px 6px" }}>Login</span>
             <span style={{ ...s.primaryBtn, fontSize: "9px", padding: "3px 8px", fontWeight: 700, display: "inline-block" }}>Get Started</span>

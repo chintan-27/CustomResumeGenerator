@@ -2,7 +2,7 @@
 
 import React, { useRef } from "react";
 import Link from "next/link";
-import { motion, useScroll, useTransform, useInView } from "framer-motion";
+import { motion, useInView } from "framer-motion";
 
 // ─── Animation helpers ────────────────────────────────────────────────────────
 
@@ -251,11 +251,6 @@ const TEMPLATES = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const heroRef = useRef(null);
-  const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.75], [1, 0]);
-  const heroY = useTransform(scrollYProgress, [0, 0.75], [0, -50]);
-
   return (
     <div className="bg-[#faf9f6] text-[#1a1a1a] overflow-x-hidden">
 
@@ -263,7 +258,7 @@ export default function Home() {
       <nav className="fixed top-0 inset-x-0 z-50 border-b border-[#e5e3de] bg-[#faf9f6]/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">
-            Resume<span className="text-[#2d6a4f]">AI</span>
+            Pari<span className="text-[#2d6a4f]">chaya</span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
@@ -283,38 +278,26 @@ export default function Home() {
       </nav>
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section ref={heroRef} className="relative min-h-screen flex items-center pt-16 overflow-hidden">
+      <section className="relative min-h-screen flex items-center pt-16 overflow-hidden">
         {/* Decorative orbs */}
         <div className="absolute top-10 right-[-100px] w-[700px] h-[700px] rounded-full bg-[#2d6a4f] opacity-[0.08] blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] rounded-full bg-[#c97d3f] opacity-[0.07] blur-[100px] pointer-events-none" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] rounded-full bg-[#4ade80] opacity-[0.03] blur-[120px] pointer-events-none" />
 
-        <motion.div
-          style={{ opacity: heroOpacity, y: heroY }}
-          className="relative z-10 w-full max-w-7xl mx-auto px-6 py-24"
-        >
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-6 py-24">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             {/* Left: Copy */}
             <div>
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
+              <span
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-[#e5e3de] text-[#6b7280] mb-8 shadow-sm"
+                style={{ fontSize: "11px", fontFamily: "var(--font-mono)" }}
               >
-                <span
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-[#e5e3de] text-[#6b7280] mb-8 shadow-sm"
-                  style={{ fontSize: "11px", fontFamily: "var(--font-mono)" }}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#2d6a4f] animate-pulse" />
-                  AI-Powered · ATS-Optimized · 2026
-                </span>
-              </motion.div>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2d6a4f] animate-pulse" />
+                AI-Powered · ATS-Optimized · 2026
+              </span>
 
-              <motion.h1
-                initial={{ opacity: 0, y: 32 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-                className="font-bold leading-[1.06] mb-6 tracking-tight"
+              <h1
+                className="font-bold leading-[1.06] mb-6 tracking-tight text-[#1a1a1a]"
                 style={{ fontSize: "clamp(2.8rem, 5.5vw, 5.2rem)" }}
               >
                 Your Resume,
@@ -322,24 +305,14 @@ export default function Home() {
                 <span className="text-[#2d6a4f]">Perfected</span>
                 <br />
                 by AI.
-              </motion.h1>
+              </h1>
 
-              <motion.p
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.55, delay: 0.22 }}
-                className="text-lg text-[#6b7280] mb-10 max-w-md leading-relaxed"
-              >
+              <p className="text-lg text-[#6b7280] mb-10 max-w-md leading-relaxed">
                 Tailored to every job description. Grounded in your real experience.
                 Zero hallucinations — just results.
-              </motion.p>
+              </p>
 
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.32 }}
-                className="flex flex-wrap gap-3 mb-12"
-              >
+              <div className="flex flex-wrap gap-3 mb-12">
                 <Link
                   href="/signup"
                   className="px-7 py-3.5 bg-[#1a1a1a] text-white font-semibold rounded-full hover:bg-[#2d6a4f] transition-all duration-200 shadow-lg shadow-black/10 flex items-center gap-2 text-[15px]"
@@ -353,15 +326,10 @@ export default function Home() {
                 >
                   How it works
                 </Link>
-              </motion.div>
+              </div>
 
               {/* Stats */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.5, delay: 0.48 }}
-                className="flex gap-8 pt-8 border-t border-[#e5e3de]"
-              >
+              <div className="flex gap-8 pt-8 border-t border-[#e5e3de]">
                 {[
                   { v: "50K+", l: "Resumes created" },
                   { v: "89%", l: "Interview rate" },
@@ -378,7 +346,7 @@ export default function Home() {
                     </div>
                   </div>
                 ))}
-              </motion.div>
+              </div>
             </div>
 
             {/* Right: Resume mockup */}
@@ -386,7 +354,7 @@ export default function Home() {
               <ResumePreview />
             </div>
           </div>
-        </motion.div>
+        </div>
       </section>
 
       {/* ── Ticker ─────────────────────────────────────────────────────────── */}
@@ -493,7 +461,7 @@ export default function Home() {
                   className="font-bold mt-3 leading-tight"
                   style={{ fontSize: "clamp(2rem, 4vw, 3.5rem)" }}
                 >
-                  Why ResumeAI?
+                  Why Parichaya?
                 </h2>
               </div>
               <p className="text-[#6b7280] max-w-xs text-sm leading-relaxed">
@@ -629,7 +597,7 @@ export default function Home() {
                 <span className="text-[#4ade80]">your dream job?</span>
               </h2>
               <p className="text-white/45 text-lg mb-10 max-w-lg leading-relaxed">
-                Join 50,000+ professionals who&apos;ve built winning, ATS-optimized resumes with ResumeAI.
+                Join 50,000+ professionals who&apos;ve built winning, ATS-optimized resumes with Parichaya.
               </p>
               <Link
                 href="/signup"
@@ -647,10 +615,10 @@ export default function Home() {
       <footer className="bg-[#0a1a12] border-t border-white/[0.06] py-8">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
           <span className="font-bold text-white/70">
-            Resume<span className="text-[#4ade80]">AI</span>
+            Pari<span className="text-[#4ade80]">chaya</span>
           </span>
           <p className="text-white/30" style={{ fontSize: "12px", fontFamily: "var(--font-mono)" }}>
-            © 2026 ResumeAI. All rights reserved.
+            © 2026 Parichaya. All rights reserved.
           </p>
         </div>
       </footer>
