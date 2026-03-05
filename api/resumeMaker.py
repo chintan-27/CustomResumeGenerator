@@ -222,7 +222,52 @@ def make_latex_resume_v2(latex_content, data, template_dir):
 
     for pattern in extracted_patterns:
 
-        if pattern not in ['experience', 'education', 'projects', 'skills']:
+        if pattern == 'certsection':
+            certs = data.get('certifications', [])
+            if certs:
+                cert_latex_og = read_latex(os.path.join(template_dir, "certification.tex"))
+                final_certs = []
+                for c in certs:
+                    cert_latex = cert_latex_og.split("-----")[0]
+                    cert_latex = cert_latex.replace("xyznamexyz", _escape_latex(c.get("name", "")))
+                    cert_latex = cert_latex.replace("xyzissuerxyz", _escape_latex(c.get("issuer", "")))
+                    cert_latex = cert_latex.replace("xyzdatexyz", _escape_latex(c.get("date_issued", "")))
+                    final_certs.append(cert_latex)
+                sep = cert_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
+                section = (
+                    "\n\\vspace{-6pt}\n\\section*{Certifications}\n"
+                    "\\begin{itemize}[leftmargin=1.5em, itemsep=2pt, topsep=1pt]\n"
+                    + sep.join(final_certs)
+                    + "\n\\end{itemize}\n"
+                )
+                latex_content = latex_content.replace("xyzcertsectionxyz", section)
+            else:
+                latex_content = latex_content.replace("xyzcertsectionxyz", "")
+
+        elif pattern == 'pubsection':
+            pubs = data.get('publications', [])
+            if pubs:
+                pub_latex_og = read_latex(os.path.join(template_dir, "publication.tex"))
+                final_pubs = []
+                for p in pubs:
+                    pub_latex = pub_latex_og.split("-----")[0]
+                    pub_latex = pub_latex.replace("xyztitlexyz", _escape_latex(p.get("title", "")))
+                    pub_latex = pub_latex.replace("xyzauthorsxyz", _escape_latex(p.get("authors", "")))
+                    pub_latex = pub_latex.replace("xyzvenuexyz", _escape_latex(p.get("venue", "")))
+                    pub_latex = pub_latex.replace("xyzyearxyz", _escape_latex(p.get("year", "")))
+                    final_pubs.append(pub_latex)
+                sep = pub_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
+                section = (
+                    "\n\\vspace{-6pt}\n\\section*{Publications}\n"
+                    "\\begin{itemize}[leftmargin=1.5em, itemsep=4pt, topsep=1pt]\n"
+                    + sep.join(final_pubs)
+                    + "\n\\end{itemize}\n"
+                )
+                latex_content = latex_content.replace("xyzpubsectionxyz", section)
+            else:
+                latex_content = latex_content.replace("xyzpubsectionxyz", "")
+
+        elif pattern not in ['experience', 'education', 'projects', 'skills']:
             latex_content = latex_content.replace(f"xyz{pattern}xyz", _escape_latex(str(data.get(pattern) or "")))
 
         elif pattern == 'education':

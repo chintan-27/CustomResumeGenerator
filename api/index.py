@@ -106,6 +106,27 @@ class Skill(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     skills = db.Column(db.String(1024))
 
+class Certification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    issuer = db.Column(db.String(255), nullable=False)
+    date_issued = db.Column(db.String(50))   # "Month Year"
+    expiry_date = db.Column(db.String(50))   # "Month Year" or "No Expiry"
+    credential_id = db.Column(db.String(255))
+    link = db.Column(db.String(512))
+
+class Publication(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    title = db.Column(db.String(512), nullable=False)
+    authors = db.Column(db.String(512), nullable=False)   # comma-separated
+    venue = db.Column(db.String(255), nullable=False)     # journal or conference
+    year = db.Column(db.String(10))
+    doi = db.Column(db.String(255))
+    link = db.Column(db.String(512))
+    abstract = db.Column(db.Text)
+
 # Job Tracker Model
 class JobApplication(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -374,16 +395,19 @@ def get_dashboard_data():
     projects = Project.query.filter_by(user_id=user.id).all()
     skills = Skill.query.filter_by(user_id=user.id).first()  # Fetch skills
 
+    certifications = Certification.query.filter_by(user_id=user.id).all()
+    publications = Publication.query.filter_by(user_id=user.id).all()
+
     return jsonify({
         "user": {
             "name": user.name,
             "email": user.email,
-            "city": profile.city if profile else None,  # Added check for profile existence
-            "state": profile.state if profile else None,  # Added check for profile existence
-            "linkedin": profile.linkedin if profile else None,  # Added check for profile existence
-            "github": profile.github if profile else None,  # Added check for profile existence
-            "number": profile.phone if profile else None,  # Added check for profile existence
-            "website": profile.website if profile else None,  # Added check for profile existence
+            "city": profile.city if profile else None,
+            "state": profile.state if profile else None,
+            "linkedin": profile.linkedin if profile else None,
+            "github": profile.github if profile else None,
+            "number": profile.phone if profile else None,
+            "website": profile.website if profile else None,
         },
         "education": [{
             "university": edu.university,
@@ -412,8 +436,116 @@ def get_dashboard_data():
             "link": proj.link,
             "details": proj.details
         } for proj in projects],
-        "skills": skills.skills if skills else []  # Added skills to the response
+        "skills": skills.skills if skills else [],
+        "certifications": [{
+            "id": c.id,
+            "name": c.name,
+            "issuer": c.issuer,
+            "date_issued": c.date_issued,
+            "expiry_date": c.expiry_date,
+            "credential_id": c.credential_id,
+            "link": c.link
+        } for c in certifications],
+        "publications": [{
+            "id": p.id,
+            "title": p.title,
+            "authors": p.authors,
+            "venue": p.venue,
+            "year": p.year,
+            "doi": p.doi,
+            "link": p.link,
+            "abstract": p.abstract
+        } for p in publications],
     })
+
+# ============================================================================
+# CERTIFICATIONS ENDPOINTS
+# ============================================================================
+
+@app.route("/api/certifications", methods=["GET"])
+@jwt_required()
+def get_certifications():
+    uid = get_jwt_identity()["id"]
+    certs = Certification.query.filter_by(user_id=uid).all()
+    return jsonify([{
+        "id": c.id, "name": c.name, "issuer": c.issuer,
+        "date_issued": c.date_issued, "expiry_date": c.expiry_date,
+        "credential_id": c.credential_id, "link": c.link
+    } for c in certs])
+
+@app.route("/api/certifications", methods=["POST"])
+@jwt_required()
+def add_certification():
+    uid = get_jwt_identity()["id"]
+    d = request.json
+    cert = Certification(
+        user_id=uid,
+        name=d.get("name", ""),
+        issuer=d.get("issuer", ""),
+        date_issued=d.get("date_issued"),
+        expiry_date=d.get("expiry_date"),
+        credential_id=d.get("credential_id"),
+        link=d.get("link")
+    )
+    db.session.add(cert)
+    db.session.commit()
+    return jsonify({"message": "Certification added", "id": cert.id}), 201
+
+@app.route("/api/certifications/<int:cert_id>", methods=["DELETE"])
+@jwt_required()
+def delete_certification(cert_id):
+    uid = get_jwt_identity()["id"]
+    cert = Certification.query.filter_by(id=cert_id, user_id=uid).first()
+    if not cert:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(cert)
+    db.session.commit()
+    return jsonify({"message": "Deleted"})
+
+# ============================================================================
+# PUBLICATIONS ENDPOINTS
+# ============================================================================
+
+@app.route("/api/publications", methods=["GET"])
+@jwt_required()
+def get_publications():
+    uid = get_jwt_identity()["id"]
+    pubs = Publication.query.filter_by(user_id=uid).all()
+    return jsonify([{
+        "id": p.id, "title": p.title, "authors": p.authors,
+        "venue": p.venue, "year": p.year, "doi": p.doi,
+        "link": p.link, "abstract": p.abstract
+    } for p in pubs])
+
+@app.route("/api/publications", methods=["POST"])
+@jwt_required()
+def add_publication():
+    uid = get_jwt_identity()["id"]
+    d = request.json
+    pub = Publication(
+        user_id=uid,
+        title=d.get("title", ""),
+        authors=d.get("authors", ""),
+        venue=d.get("venue", ""),
+        year=d.get("year"),
+        doi=d.get("doi"),
+        link=d.get("link"),
+        abstract=d.get("abstract")
+    )
+    db.session.add(pub)
+    db.session.commit()
+    return jsonify({"message": "Publication added", "id": pub.id}), 201
+
+@app.route("/api/publications/<int:pub_id>", methods=["DELETE"])
+@jwt_required()
+def delete_publication(pub_id):
+    uid = get_jwt_identity()["id"]
+    pub = Publication.query.filter_by(id=pub_id, user_id=uid).first()
+    if not pub:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(pub)
+    db.session.commit()
+    return jsonify({"message": "Deleted"})
 
 # ============================================================================
 # NEW AGENTIC RESUME GENERATION ENDPOINTS (V2)
@@ -979,6 +1111,8 @@ def finalize_resume():
         experiences = Experience.query.filter_by(user_id=user.id).all()
         projects = Project.query.filter_by(user_id=user.id).all()
         skills = Skill.query.filter_by(user_id=user.id).first()
+        certifications = Certification.query.filter_by(user_id=user.id).all()
+        publications = Publication.query.filter_by(user_id=user.id).all()
 
         # Get approved content
         generated_content = GeneratedContent.query.filter_by(
@@ -1070,6 +1204,26 @@ def finalize_resume():
                     "generated_bullets": project_bullets.get(proj.id, [])
                 } for proj in projects
                 if project_bullets.get(proj.id)  # only include projects that have generated bullets
+            ],
+            "certifications": [
+                {
+                    "name": c.name,
+                    "issuer": c.issuer,
+                    "date_issued": c.date_issued or "",
+                    "expiry_date": c.expiry_date or "",
+                    "credential_id": c.credential_id or "",
+                    "link": c.link or ""
+                } for c in certifications
+            ],
+            "publications": [
+                {
+                    "title": p.title,
+                    "authors": p.authors,
+                    "venue": p.venue,
+                    "year": p.year or "",
+                    "doi": p.doi or "",
+                    "link": p.link or ""
+                } for p in publications
             ],
         }
 
