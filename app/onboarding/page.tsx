@@ -8,6 +8,8 @@ import EducationForm from "@/components/forms/EducationForm";
 import ExperienceForm from "@/components/forms/ExperienceForm";
 import ProjectForm from "@/components/forms/ProjectForm";
 import SkillForm from "@/components/forms/SkillForm";
+import CertificationForm from "@/components/forms/CertificationForm";
+import PublicationForm from "@/components/forms/PublicationForm";
 import Summary from "@/components/forms/Summary";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -18,7 +20,9 @@ const STEPS = [
   { id: 3, label: "Experience" },
   { id: 4, label: "Projects" },
   { id: 5, label: "Skills" },
-  { id: 6, label: "Review" },
+  { id: 6, label: "Certs" },
+  { id: 7, label: "Papers" },
+  { id: 8, label: "Review" },
 ];
 
 const Onboarding: React.FC = () => {
@@ -29,6 +33,8 @@ const Onboarding: React.FC = () => {
     experience: [],
     projects: [],
     skills: [],
+    certifications: [],
+    publications: [],
   });
 
   const { data: session } = useSession();
@@ -142,7 +148,9 @@ const Onboarding: React.FC = () => {
       case 3: return <ExperienceForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("experience", d)} initialData={formData.experience} />;
       case 4: return <ProjectForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("projects", d)} initialData={formData.projects} />;
       case 5: return <SkillForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("skills", d)} initialData={formData.skills} />;
-      case 6: return <Summary formData={formData} prevStep={prevStep} />;
+      case 6: return <CertificationForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("certifications", d)} initialData={formData.certifications} />;
+      case 7: return <PublicationForm nextStep={nextStep} prevStep={prevStep} onChange={(d) => handleDataChange("publications", d)} initialData={formData.publications} />;
+      case 8: return <Summary formData={formData} prevStep={prevStep} />;
       default: return null;
     }
   };

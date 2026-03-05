@@ -67,7 +67,27 @@ const Summary = ({ formData, prevStep }: { formData: any; prevStep: () => void }
         body: JSON.stringify({ skills: getSkillsString() }),
       });
 
-      await Promise.all([...educationRequests, ...experienceRequests, ...projectRequests, skillRequest]);
+      const certRequests = (formData.certifications || [])
+        .filter((c: any) => c.name?.trim())
+        .map((c: any) =>
+          fetch(`/python/certifications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(c),
+          })
+        );
+
+      const pubRequests = (formData.publications || [])
+        .filter((p: any) => p.title?.trim())
+        .map((p: any) =>
+          fetch(`/python/publications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(p),
+          })
+        );
+
+      await Promise.all([...educationRequests, ...experienceRequests, ...projectRequests, skillRequest, ...certRequests, ...pubRequests]);
 
       const completeOnboardingResponse = await fetch(`/python/user/complete`, {
         method: "GET",
