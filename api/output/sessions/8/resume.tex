@@ -1,0 +1,113 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[left=0.5in, right=0.5in, top=0.4in, bottom=0.4in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fontawesome}
+\usepackage{xcolor}
+
+% Bold section headers with line
+\definecolor{headerblue}{RGB}{0, 51, 102}
+\titleformat{\section}{\bfseries\large}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{10pt}{5pt}
+
+\setlist[itemize]{leftmargin=*, itemsep=-2pt, topsep=2pt}
+\hypersetup{colorlinks=true, urlcolor=headerblue}
+
+\begin{document}
+\pagestyle{empty}
+
+% Header
+\begin{center}
+    {\LARGE\bfseries Chintan Acharya}\\[6pt]
+    {\small chintanacharya22919@gmail.com \textbar{}  \textbar{} \href{https://www.linkedin.com/in/chintan-acharya-b5757a192/}{LinkedIn} \textbar{} \href{https://github.com/chintan-27}{GitHub} \textbar{} \href{https://thecka.tech/}{Website}}
+\end{center}
+
+\vspace{-8pt}
+
+% SKILLS FIRST - Prominent placement for ATS
+\section*{Technical Skills}
+\vspace{-3pt}
+\begin{itemize}
+   \item \textbf{Languages}: JavaScript, TypeScript, Python, Java, SQL, C++, Go, Rust
+\item \textbf{Frameworks & Libraries}: React, Vue, Node.js, Express, Django, Next.js, Spring Boot, FastAPI, Flask, Tailwind CSS, HTML/CSS, Pandas, NumPy, Scikit-learn, TensorFlow, PyTorch
+\item \textbf{Tools & Platforms}: REST APIs, Git, CI/CD, Docker, AWS, GCP, Azure, Linux, Figma
+\item \textbf{Databases}: MySQL, PostgreSQL, MongoDB, Redis, DynamoDB
+\end{itemize}
+
+\vspace{-8pt}
+\section*{Professional Experience}
+\vspace{-3pt}
+\textbf{Research Software Engineer} \hfill May 2024 - Pre Present \\
+\textit{University of Florida}
+\begin{itemize}
+\item Built and deployed the GRACE segmentation API with FastAPI, delivering scalable REST endpoints and real-time progress updates via Server-Sent Events (SSE) for a smoother user experience.
+\item Provisioned on-prem Linux GPU servers end-to-end (OS through drivers) and ensured stable multi-GPU inference by using Python multithreading to run concurrent jobs across 5 GPUs.
+\item Automated CI/CD with Docker and Git webhooks by containerizing images, pushing to Docker Hub, and triggering on-prem deployments for seamless, reliable updates.
+\item Optimized GatorBrain MRI segmentation performance, achieving 30\% faster CUDA inference while improving data quality through 4+ cleaning strategies and scaling to support 50GB+ MRI datasets using Singularity.
+\end{itemize}
+\vspace{-6pt}
+\textbf{Volunteer Research Assistant} \hfill Jan 2024 - Jun 2024 \\
+\textit{University of Florida}
+\begin{itemize}
+\item No points available.
+\end{itemize}
+\vspace{-6pt}
+\textbf{Research Assistant} \hfill Nov 2022 - Jul 2023 \\
+\textit{University of Florida}
+\begin{itemize}
+\item No points available.
+\end{itemize}
+\vspace{-6pt}
+\textbf{Software Engineer Intern} \hfill Jun 2021 - Dec 2021 \\
+\textit{Phemesoftware Pvt Ltd}
+\begin{itemize}
+\item Architected a Django-based E-book reading website with responsive UI and Azure API integrations for content extraction, increasing user engagement by 50\% and improving data accuracy by 30\%.
+\item Redesigned a scalable learning platform mobile app using Flutter and a PHP backend, supporting 2 million daily requests with 99.99\% uptime and reducing latency by 40\%.
+\end{itemize}
+\vspace{-6pt}
+\textbf{Software Engineer} \hfill Apr 2021 - Dec 2021 \\
+\textit{IoTmatichub}
+\begin{itemize}
+\item No points available.
+\end{itemize}
+\vspace{-6pt}
+\textbf{Full-stack Developer Intern} \hfill Jun 2020 - Aug 2020 \\
+\textit{Out of the Box Solutions}
+\begin{itemize}
+\item Developed and launched a school Olympiad foundation website using Django, delivering a robust backend and a visually appealing frontend.
+\item Integrated a testing interface into the frontend via REST API, improving testing efficiency and enabling straightforward data recording.
+\end{itemize}
+
+
+\vspace{-8pt}
+\section*{Projects}
+\vspace{-3pt}
+\textbf{Harmonium In Mac} -- \textit{Rust, Python}
+\begin{itemize}
+    \item Built “Harmonium In Mac,” a macOS project to play harmonium using Rust and Python.
+\item Designed a codebase that combines Rust and Python to support harmonium playback functionality on Mac.
+\item Published the project on GitHub with accessible source code and documentation for “Harmonium In Mac.”
+\end{itemize}
+\vspace{0pt}
+\textbf{Pixel Duet} -- \textit{Python, HTML}
+\begin{itemize}
+    \item No points available.
+\end{itemize}
+
+
+\vspace{-8pt}
+\section*{Education}
+\vspace{-3pt}
+\begin{itemize}
+    \item \textbf{Dwarkadas J. Sanghvi College of Engineering} \hfill Jun 2018 - Jun 2022 \\
+Bachelor of Engineering in Computer Engineering \textbar{} GPA: 9.25/10 \hfill , 
+\vspace{4pt}
+\item \textbf{University of Florida} \hfill Aug 2022 - May 2024 \\
+Master of Science in Computer Science \textbar{} GPA: 3.86/4.0 \hfill , 
+
+\end{itemize}
+\vspace{-3pt}
+{\small\textbf{Relevant Coursework:} Discrete MathematicsAdvanced Data Structures, Mathematics of Intelligent Systems, Analysis of Algorithm, Machine Learning, NLP, Deep Learning for Computer Graphics, Computer Vision, Distributed Operating systems}
+
+\end{document}

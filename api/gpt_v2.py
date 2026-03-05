@@ -16,12 +16,17 @@ Configure via environment variables:
 import os
 import json
 import re
+import time
+import base64
+import urllib.request
+import urllib.error
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, asdict
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 
 def parse_json_response(content: str) -> dict:
@@ -62,15 +67,45 @@ def parse_json_response(content: str) -> dict:
     raise ValueError(f"Could not parse JSON from response: {content[:200]}")
 
 
+_ENV_PATH = Path(os.path.abspath(__file__)).parent / ".env"
+
 def get_llm_client() -> OpenAI:
     """Create an OpenAI-compatible client based on environment configuration."""
+    load_dotenv(_ENV_PATH, override=True)
     base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
     api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY")
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    print(f"[gpt_v2.py] get_llm_client: env_path={_ENV_PATH}, base_url={base_url}, model={model}, key={'SET' if api_key else 'MISSING'}")
 
     if not api_key:
         raise ValueError("No API key found. Set LLM_API_KEY, OPENAI_KEY, or OPENAI_API_KEY environment variable.")
 
     return OpenAI(base_url=base_url, api_key=api_key)
+
+
+def llm_call_with_retry(client, model, messages, response_format=None, max_retries=3, **kwargs):
+    """Make an LLM API call with exponential backoff on rate limit / auth errors."""
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            create_kwargs = {"model": model, "messages": messages, **kwargs}
+            if response_format:
+                create_kwargs["response_format"] = response_format
+            return client.chat.completions.create(**create_kwargs)
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            is_retryable = any(x in err_str for x in ["401", "429", "auth", "rate", "connection", "timeout"])
+            if attempt < max_retries and is_retryable:
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                print(f"LLM call failed (attempt {attempt+1}), retrying in {wait}s: {e}")
+                time.sleep(wait)
+                # Refresh client in case of auth issue
+                load_dotenv(Path(__file__).parent / ".env", override=True)
+                client = get_llm_client()
+                continue
+            raise
+    raise last_error
 
 
 def get_model_name() -> str:
@@ -104,6 +139,14 @@ class ClarifyingQuestionData:
 
 
 @dataclass
+class PromptInstructions:
+    question_focus: str      # What kinds of metrics/details matter for this role
+    bullet_style: str        # How bullets should be framed for this role
+    key_themes: List[str]    # Themes to emphasize (e.g. "scale", "cost reduction")
+    avoid: List[str]         # Generic phrases to avoid for this specific role
+
+
+@dataclass
 class GeneratedBullet:
     target_id: int
     target_type: str  # experience, project
@@ -128,6 +171,39 @@ CRITICAL ANTI-HALLUCINATION RULES - YOU MUST FOLLOW THESE EXACTLY:
 9. When in doubt, be conservative - less is better than fabricated
 10. Preserve the user's actual accomplishments - just improve phrasing
 """
+
+
+def fetch_github_readme(github_url: str, max_chars: int = 800) -> Optional[str]:
+    """
+    Fetch the README for a public GitHub repository.
+    Returns the first max_chars of the README text, or None if unavailable.
+    """
+    try:
+        # Extract owner/repo from URL patterns like:
+        #   https://github.com/owner/repo
+        #   https://github.com/owner/repo/tree/main/...
+        match = re.search(r'github\.com/([^/]+)/([^/?#]+)', github_url)
+        if not match:
+            return None
+        owner, repo = match.group(1), match.group(2).rstrip('.git')
+
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+        req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "resume-builder"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+
+        content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+        # Strip markdown noise: remove badges, HTML tags, code fences
+        content = re.sub(r'```[\s\S]*?```', '', content)
+        content = re.sub(r'<[^>]+>', '', content)
+        content = re.sub(r'!\[.*?\]\(.*?\)', '', content)  # images
+        content = re.sub(r'\[.*?\]\(.*?\)', lambda m: m.group(0).split(']')[0][1:], content)  # links → text
+        content = re.sub(r'#+\s*', '', content)  # headings
+        content = re.sub(r'\n{3,}', '\n\n', content).strip()
+        return content[:max_chars]
+    except Exception as e:
+        print(f"[github] Could not fetch README for {github_url}: {e}")
+        return None
 
 
 def analyze_job_description(job_description: str) -> JobAnalysis:
@@ -161,19 +237,10 @@ IMPORTANT:
 - Job field must be exactly one of the specified options
 """
 
-    # Try with JSON mode first, fallback to regular mode for providers that don't support it
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-    except Exception as e:
-        # Fallback for providers that don't support response_format
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}]
-        )
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}])
 
     result = parse_json_response(response.choices[0].message.content)
 
@@ -189,12 +256,51 @@ IMPORTANT:
     )
 
 
+def generate_prompt_instructions(job_analysis: JobAnalysis) -> PromptInstructions:
+    """
+    Generate role-specific prompt instructions based on the job analysis.
+    One fast call that customizes how questions and bullets are written for this exact role.
+    """
+    client = get_llm_client()
+    model = get_model_name()
+
+    prompt = f"""You are a resume strategy expert. Given this job analysis, define how to best present a candidate.
+
+Job Title: {job_analysis.job_title}
+Field: {job_analysis.job_field}
+Key Responsibilities: {', '.join(job_analysis.key_responsibilities[:5])}
+Required Skills: {', '.join(job_analysis.required_skills[:8])}
+Company Values: {', '.join(job_analysis.company_values[:4])}
+
+Return a JSON object with exactly these fields:
+{{
+    "question_focus": "1-2 sentence description of what metrics and details matter most for this role (e.g. 'Focus on scale of systems built, latency improvements, and team collaboration patterns')",
+    "bullet_style": "1-2 sentence description of how bullets should be framed (e.g. 'Lead with technical depth and quantified system impact. Emphasize ownership and cross-functional work.')",
+    "key_themes": ["3-5 themes to weave naturally into bullets — specific to this role, not generic"],
+    "avoid": ["3-5 specific buzzwords or generic phrases that are cliche for this role type"]
+}}"""
+
+    try:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON."}])
+
+    result = parse_json_response(response.choices[0].message.content)
+    return PromptInstructions(
+        question_focus=result.get("question_focus", "Focus on measurable impact and scope."),
+        bullet_style=result.get("bullet_style", "Lead with action and quantified results."),
+        key_themes=result.get("key_themes", []),
+        avoid=result.get("avoid", [])
+    )
+
+
 def generate_clarifying_questions(
     job_analysis: JobAnalysis,
     experiences: List[Dict[str, Any]],
     projects: List[Dict[str, Any]],
     user_skills: str,
-    max_questions: int = 8
+    max_questions: int = 8,
+    prompt_instructions: Optional[PromptInstructions] = None
 ) -> List[ClarifyingQuestionData]:
     """
     Generate clarifying questions to gather metrics and verify claims.
@@ -204,16 +310,52 @@ def generate_clarifying_questions(
     client = get_llm_client()
     model = get_model_name()
 
-    # Build context about user's data
-    experiences_summary = "\n".join([
-        f"- ID {i}: {exp.get('position', 'Unknown')} at {exp.get('company', 'Unknown')}: {exp.get('description', 'No description')[:200]}"
-        for i, exp in enumerate(experiences)
-    ])
+    # Build context about user's data — detect thin descriptions for gap filling
+    gap_flags = []
+    experiences_summary_parts = []
+    for i, exp in enumerate(experiences):
+        desc = exp.get('description', '') or ''
+        word_count = len(desc.split())
+        flag = ""
+        if word_count < 20:
+            flag = " [⚠ VERY SHORT description — prioritize gap_filling questions]"
+            gap_flags.append(f"Experience {i} ({exp.get('position', '?')} at {exp.get('company', '?')}) has only {word_count} words")
+        elif word_count < 50:
+            flag = " [description is brief — consider gap_filling questions]"
+        experiences_summary_parts.append(
+            f"- ID {i}: {exp.get('position', 'Unknown')} at {exp.get('company', 'Unknown')}{flag}: {desc[:250]}"
+        )
+    experiences_summary = "\n".join(experiences_summary_parts)
 
-    projects_summary = "\n".join([
-        f"- ID {i}: {proj.get('name', 'Unknown')}: {proj.get('description', 'No description')[:200]}"
-        for i, proj in enumerate(projects)
-    ])
+    projects_summary_parts = []
+    for i, proj in enumerate(projects):
+        desc = proj.get('description', '') or ''
+        word_count = len(desc.split())
+        flag = ""
+        if word_count < 15:
+            flag = " [⚠ VERY SHORT — prioritize gap_filling]"
+        readme = proj.get('readme_content', '')
+        readme_snippet = f"\n  README: {readme[:300]}" if readme else ""
+        projects_summary_parts.append(
+            f"- ID {i}: {proj.get('name', 'Unknown')}{flag}: {desc[:200]}{readme_snippet}"
+        )
+    projects_summary = "\n".join(projects_summary_parts)
+
+    # Role-specific guidance from prompt instructions
+    role_guidance = ""
+    if prompt_instructions:
+        role_guidance = f"""
+ROLE-SPECIFIC QUESTION STRATEGY:
+{prompt_instructions.question_focus}
+Key themes to probe for: {', '.join(prompt_instructions.key_themes)}
+"""
+
+    gap_context = ""
+    if gap_flags:
+        gap_context = f"""
+⚠ DESCRIPTION GAPS DETECTED — Include gap_filling questions for:
+{chr(10).join(gap_flags)}
+"""
 
     prompt = f"""{ANTI_HALLUCINATION_RULES}
 
@@ -222,7 +364,8 @@ Job Title: {job_analysis.job_title}
 Field: {job_analysis.job_field}
 Key Skills: {', '.join(job_analysis.required_skills[:10])}
 Keywords: {', '.join(job_analysis.keywords[:15])}
-
+{role_guidance}
+{gap_context}
 User's Experiences:
 {experiences_summary}
 
@@ -252,6 +395,7 @@ QUESTION TYPES AND OPTIONS:
    - Methodologies: ["Agile/Scrum", "Kanban", "Waterfall", "DevOps", "CI/CD", "TDD"]
    - Deployment: ["AWS", "GCP", "Azure", "On-premise", "Hybrid", "Docker/Kubernetes"]
    - Database types: ["SQL (PostgreSQL, MySQL)", "NoSQL (MongoDB, DynamoDB)", "Redis/Caching", "Data Warehouses"]
+   - For short/vague descriptions: ask about what was actually built, the problem solved, or the outcome achieved
 
 Return a JSON array of questions:
 [
@@ -275,20 +419,13 @@ RULES:
 - Include "Other/Not applicable" as last option when appropriate
 - Make questions specific to the user's actual experiences
 - Prioritize questions that align with job requirements
+- For thin descriptions (flagged above), ask gap_filling questions that reveal what was actually done
 """
 
-    # Try with JSON mode first, fallback for providers that don't support it
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-    except Exception as e:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}]
-        )
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}])
 
     result = parse_json_response(response.choices[0].message.content)
 
@@ -336,7 +473,8 @@ def generate_grounded_bullets(
     entity_id: int,
     user_answers: Dict[int, str],  # question_id -> answer
     relevant_questions: List[Dict[str, Any]],
-    num_bullets: int = 3
+    num_bullets: int = 3,
+    prompt_instructions: Optional[PromptInstructions] = None
 ) -> List[GeneratedBullet]:
     """
     Generate resume bullet points that are STRICTLY grounded in user's actual data.
@@ -360,60 +498,71 @@ Duration: {entity_data.get('start_date', '')} - {entity_data.get('end_date', 'Pr
 Description: {entity_data.get('description', 'No description provided')}
 """
     else:  # project
+        readme = entity_data.get('readme_content', '')
+        readme_section = f"\nGitHub README (for additional context):\n{readme[:600]}" if readme else ""
         entity_context = f"""
 Project Name: {entity_data.get('name', 'Unknown')}
 Description: {entity_data.get('description', 'No description provided')}
 Details: {entity_data.get('details', '')}
 Link: {entity_data.get('link', '')}
+Tech Stack: {entity_data.get('tech_stack', '')}{readme_section}
 """
 
-    prompt = f"""{ANTI_HALLUCINATION_RULES}
+    # Role-specific bullet guidance from prompt instructions
+    bullet_guidance = ""
+    themes_guidance = ""
+    avoid_guidance = ""
+    if prompt_instructions:
+        bullet_guidance = f"BULLET STYLE FOR THIS ROLE: {prompt_instructions.bullet_style}"
+        if prompt_instructions.key_themes:
+            themes_guidance = f"Themes to weave in naturally (only if supported by user data): {', '.join(prompt_instructions.key_themes)}"
+        if prompt_instructions.avoid:
+            avoid_guidance = f"Avoid these overused phrases for this role type: {', '.join(prompt_instructions.avoid)}"
 
-Generate {num_bullets} resume bullet points for this {entity_type}.
+    prompt = f"""You are a professional resume writer. Write {num_bullets} concise, impactful bullet points for a resume.
 
-TARGET JOB:
-- Title: {job_analysis.job_title}
-- Keywords to incorporate (use EXACT phrasing): {', '.join(job_analysis.keywords[:15])}
+TARGET ROLE: {job_analysis.job_title}
 
-{entity_type.upper()} DATA:
+{entity_type.upper()} TO DESCRIBE:
 {entity_context}
 
-ADDITIONAL VERIFIED INFORMATION FROM USER:
-{answers_context if answers_context else "No additional metrics provided"}
+USER-PROVIDED DETAILS:
+{answers_context if answers_context else "None provided"}
 
-RULES FOR BULLET GENERATION:
-1. Each bullet MUST be traceable to the data above - no invented details
-2. Start with strong action verbs (avoid: spearheaded, orchestrated, leveraged)
-3. Include keywords from the job description NATURALLY
-4. If user provided metrics, use EXACT numbers they gave
-5. If no metrics provided, focus on scope and impact without inventing numbers
-6. Keep bullets concise: 1-2 lines max
-7. Highlight relevant technologies/skills the user actually used
+RELEVANT SKILLS/TECHNOLOGIES FOR THIS ROLE: {', '.join(job_analysis.required_skills[:8])}
+{bullet_guidance}
+{themes_guidance}
+{avoid_guidance}
 
-Return a JSON object:
+GUIDELINES:
+- Write naturally — do NOT force keywords into every bullet
+- Start each bullet with a strong, varied action verb (e.g. Built, Designed, Reduced, Improved, Automated, Collaborated)
+- Mention technologies and skills only when they genuinely appear in the description above
+- If the user provided metrics, use their exact numbers; otherwise describe scope/impact without inventing figures
+- Each bullet should be 1-2 lines, specific, and achievement-oriented
+- Sound like a human wrote it — avoid buzzword overload
+
+STRICT RULES:
+- Only reference what is explicitly in the data above — no invented details
+- Do not add tools, frameworks, or outcomes the user did not mention
+- Do not repeat the same action verb across bullets
+
+Return JSON:
 {{
     "bullets": [
         {{
-            "text": "The bullet point text",
-            "keywords_used": ["keyword1", "keyword2"],
-            "grounding_source": "What specific user data this came from"
+            "text": "Bullet point text",
+            "keywords_used": ["only", "naturally", "included", "ones"],
+            "grounding_source": "Which part of the user data this came from"
         }}
     ]
 }}
 """
 
-    # Try with JSON mode first, fallback for providers that don't support it
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-    except Exception as e:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}]
-        )
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}])
 
     result = parse_json_response(response.choices[0].message.content)
     bullets_data = result.get("bullets", []) if isinstance(result, dict) else []
@@ -483,18 +632,10 @@ CRITICAL:
 - DO NOT invent or add any skills not explicitly listed
 """
 
-    # Try with JSON mode first, fallback for providers that don't support it
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-    except Exception as e:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}]
-        )
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}])
 
     return parse_json_response(response.choices[0].message.content)
 

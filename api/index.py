@@ -1,3 +1,7 @@
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env", override=True)
+
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -5,15 +9,26 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from flask_cors import CORS
 import os
 import json
+import hashlib
+import secrets
+import time
+
+# Absolute path to api/output/ — all resume files stored here
+API_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(API_DIR, "output")
+from datetime import datetime, timedelta
 from dataclasses import asdict
-from resumeMaker import make_latex_resume, read_latex, write_latex, compile_pdf
+from resumeMaker import make_latex_resume, make_latex_resume_v2, read_latex, write_latex, compile_pdf
 from gpt_v2 import (
     analyze_job_description,
+    generate_prompt_instructions,
     generate_clarifying_questions,
     generate_grounded_bullets,
     generate_skills_section,
     select_content_for_page_count,
-    JobAnalysis
+    fetch_github_readme,
+    JobAnalysis,
+    PromptInstructions
 )
 
 # Initialize Flask app
@@ -37,6 +52,10 @@ class User(db.Model):
     email = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     onboarding_completed = db.Column(db.Boolean, default=False)
+    email_verified = db.Column(db.Boolean, default=False)
+    reset_token_hash = db.Column(db.String(255))
+    reset_token_expires = db.Column(db.DateTime)
+    verify_token_hash = db.Column(db.String(255))
 
 class Profile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -87,6 +106,20 @@ class Skill(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     skills = db.Column(db.String(1024))
 
+# Job Tracker Model
+class JobApplication(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    company = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(50), default='wishlist')  # wishlist, applied, interview, offer
+    url = db.Column(db.String(512))
+    notes = db.Column(db.Text)
+    salary = db.Column(db.String(100))
+    location = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
+
 # Resume Generation Session Models
 class GenerationSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -98,6 +131,8 @@ class GenerationSession(db.Model):
     session_state = db.Column(db.String(50), default='analyzing')  # analyzing, questions, generating, review, template, complete
     template_id = db.Column(db.String(50), default='classic')
     page_count = db.Column(db.Integer, default=1)
+    skills_organized = db.Column(db.Text)  # JSON string of organized skills from V2 pipeline
+    prompt_instructions = db.Column(db.Text)  # JSON string of role-specific prompt guidance
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 
@@ -199,7 +234,10 @@ def check_onboarding_status():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    return jsonify({"onboarding_completed": user.onboarding_completed})
+    return jsonify({
+        "onboarding_completed": user.onboarding_completed,
+        "email_verified": user.email_verified,
+    })
 
 # PATCH ROUTES
 @app.route("/api/user/profile", methods=["POST", "PATCH"])
@@ -463,6 +501,9 @@ def start_generation_session():
         # Analyze job description
         job_analysis = analyze_job_description(job_description)
 
+        # Generate role-specific prompt instructions (one fast call)
+        prompt_instructions = generate_prompt_instructions(job_analysis)
+
         # Create session
         session = GenerationSession(
             user_id=current_user["id"],
@@ -470,7 +511,8 @@ def start_generation_session():
             extracted_keywords=job_analysis.keywords,
             job_field=job_analysis.job_field,
             years_required=job_analysis.years_required,
-            session_state="questions"
+            session_state="questions",
+            prompt_instructions=json.dumps(asdict(prompt_instructions))
         )
         db.session.add(session)
         db.session.commit()
@@ -490,20 +532,28 @@ def start_generation_session():
             "current": exp.current
         } for exp in experiences]
 
-        projects_data = [{
-            "id": proj.id,
-            "name": proj.name,
-            "description": proj.description,
-            "details": proj.details,
-            "link": proj.link
-        } for proj in projects]
+        # Fetch GitHub READMEs for projects
+        projects_data = []
+        for proj in projects:
+            readme = None
+            if proj.link and "github.com" in proj.link:
+                readme = fetch_github_readme(proj.link)
+            projects_data.append({
+                "id": proj.id,
+                "name": proj.name,
+                "description": proj.description,
+                "details": proj.details,
+                "link": proj.link,
+                "readme_content": readme
+            })
 
-        # Generate clarifying questions
+        # Generate clarifying questions with role-specific guidance
         questions = generate_clarifying_questions(
             job_analysis,
             experiences_data,
             projects_data,
-            skills.skills if skills else ""
+            skills.skills if skills else "",
+            prompt_instructions=prompt_instructions
         )
 
         # Store questions in database
@@ -651,8 +701,33 @@ def generate_draft():
         questions = ClarifyingQuestion.query.filter_by(session_id=session_id).all()
         answers = {q.id: q.user_answer for q in questions if q.answered}
 
+        # Load prompt instructions from session
+        pi_data = None
+        if session.prompt_instructions:
+            try:
+                pi_dict = json.loads(session.prompt_instructions)
+                pi_data = PromptInstructions(**pi_dict)
+            except Exception:
+                pass
+
         # Select content based on page count
         page_count = session.page_count or 1
+
+        # Fetch GitHub READMEs for projects (for bullet generation context)
+        projects_with_readme = []
+        for proj in projects:
+            readme = None
+            if proj.link and "github.com" in proj.link:
+                readme = fetch_github_readme(proj.link)
+            projects_with_readme.append({
+                "id": proj.id,
+                "name": proj.name,
+                "description": proj.description,
+                "details": proj.details,
+                "link": proj.link,
+                "readme_content": readme
+            })
+
         selection = select_content_for_page_count(
             [{
                 "id": exp.id,
@@ -663,13 +738,7 @@ def generate_draft():
                 "end_date": exp.end_date,
                 "current": exp.current
             } for exp in experiences],
-            [{
-                "id": proj.id,
-                "name": proj.name,
-                "description": proj.description,
-                "details": proj.details,
-                "link": proj.link
-            } for proj in projects],
+            projects_with_readme,
             job_analysis,
             page_count
         )
@@ -677,7 +746,9 @@ def generate_draft():
         generated_content = []
 
         # Generate bullets for experiences
-        for exp_data in selection["experiences"]:
+        for i, exp_data in enumerate(selection["experiences"]):
+            if i > 0:
+                time.sleep(0.5)  # avoid rate limiting on sequential calls
             relevant_qs = [{"id": q.id, "question_text": q.question_text}
                          for q in questions
                          if q.target_entity == "experience" and q.target_id == exp_data.get("_original_index")]
@@ -689,7 +760,8 @@ def generate_draft():
                 exp_data.get("id"),
                 answers,
                 relevant_qs,
-                exp_data.get("_bullets_count", 3)
+                exp_data.get("_bullets_count", 3),
+                prompt_instructions=pi_data
             )
 
             for bullet in bullets:
@@ -715,6 +787,7 @@ def generate_draft():
 
         # Generate bullets for projects
         for proj_data in selection["projects"]:
+            time.sleep(0.5)  # avoid rate limiting on sequential calls
             relevant_qs = [{"id": q.id, "question_text": q.question_text}
                          for q in questions
                          if q.target_entity == "project" and q.target_id == proj_data.get("_original_index")]
@@ -726,7 +799,8 @@ def generate_draft():
                 proj_data.get("id"),
                 answers,
                 relevant_qs,
-                proj_data.get("_bullets_count", 2)
+                proj_data.get("_bullets_count", 2),
+                prompt_instructions=pi_data
             )
 
             for bullet in bullets:
@@ -757,6 +831,7 @@ def generate_draft():
         )
 
         session.session_state = "review"
+        session.skills_organized = json.dumps(skills_organized)
         db.session.commit()
 
         return jsonify({
@@ -927,14 +1002,14 @@ def finalize_resume():
 
         # Determine template directory
         template_id = session.template_id or "classic"
-        # For now, use template1 as fallback until other templates are created
-        template_dir = f"api/templates/{template_id}"
+        template_dir = os.path.join(API_DIR, "templates", template_id)
         if not os.path.exists(template_dir):
-            template_dir = "api/templates/template1"
+            template_dir = os.path.join(API_DIR, "templates", "template1")
 
         main_tex_file = os.path.join(template_dir, "main.tex")
-        output_tex_file = f"api/output/output_{session_id}.tex"
-        output_directory = "output"
+        session_output_dir = os.path.join(OUTPUT_DIR, "sessions", str(session_id))
+        os.makedirs(session_output_dir, exist_ok=True)
+        output_tex_file = os.path.join(session_output_dir, "resume.tex")
 
         # Build relevant coursework string
         relevant_coursework = ""
@@ -971,19 +1046,20 @@ def finalize_resume():
             ],
             "relevantcoursework": relevant_coursework,
             "skills": skills.skills if skills else "",
+            "skills_organized": json.loads(session.skills_organized) if session.skills_organized else {},
             "experience": [
                 {
                     "position": exp.position,
                     "company": exp.company,
                     "startmonth": exp.start_date.split(" ")[0] if exp.start_date else "",
                     "startyear": exp.start_date.split(" ")[-1] if exp.start_date else "",
-                    "endmonth": exp.end_date.split(" ")[0] if exp.end_date else "",
-                    "endyear": exp.end_date.split(" ")[-1] if exp.end_date else "",
+                    "endmonth": "" if exp.current else (exp.end_date.split(" ")[0] if exp.end_date else ""),
+                    "endyear": "" if exp.current else (exp.end_date.split(" ")[-1] if exp.end_date else ""),
                     "current": exp.current,
                     "description": exp.description,
-                    # Add generated bullets
                     "generated_bullets": experience_bullets.get(exp.id, [])
                 } for exp in experiences
+                if experience_bullets.get(exp.id)  # only include experiences that have generated bullets
             ],
             "projects": [
                 {
@@ -991,32 +1067,36 @@ def finalize_resume():
                     "details": proj.details,
                     "link": proj.link,
                     "description": proj.description,
-                    # Add generated bullets
                     "generated_bullets": project_bullets.get(proj.id, [])
                 } for proj in projects
+                if project_bullets.get(proj.id)  # only include projects that have generated bullets
             ],
         }
 
-        # Read and populate template
+        # Read and populate template using V2 (no LLM calls — content already generated)
         latex_template = read_latex(file_path=main_tex_file)
-        populated_content = make_latex_resume(
+        populated_content = make_latex_resume_v2(
             latex_content=latex_template,
             data=yaml_data,
-            jobdescription=session.job_description,
             template_dir=template_dir
         )
 
         # Write and compile
         write_latex(file_path=output_tex_file, content=populated_content)
-        compile_pdf(main_tex_path=output_tex_file, output_dir=output_directory)
+        print(f"[finalize] Generated LaTeX written to {output_tex_file}")
+        # Print first unreplaced xyz patterns (debugging)
+        import re as _re
+        remaining = _re.findall(r'xyz\w+xyz', populated_content)
+        if remaining:
+            print(f"[finalize] WARNING: Unreplaced patterns in LaTeX: {set(remaining)}")
+        compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
 
-        output_pdf_name = f"output_{session_id}.pdf"
-        output_pdf_path = os.path.join(output_directory, output_pdf_name)
+        output_pdf_path = os.path.join(session_output_dir, "resume.pdf")
 
         return jsonify({
             "success": True,
             "session_id": session_id,
-            "pdf_url": output_pdf_path,
+            "pdf_url": f"output/sessions/{session_id}/resume.pdf",
             "latex_content": populated_content,
             "template_used": template_id
         })
@@ -1091,10 +1171,11 @@ def generate_resume():
 
     try:
         # File paths
-        template_dir = "api/templates/template1"
+        template_dir = os.path.join(API_DIR, "templates", "template1")
         main_tex_file = os.path.join(template_dir, "main.tex")
-        output_tex_file = "api/output/output.tex"
-        output_directory = "output"
+        user_output_dir = os.path.join(OUTPUT_DIR, "legacy", str(current_user["id"]))
+        os.makedirs(user_output_dir, exist_ok=True)
+        output_tex_file = os.path.join(user_output_dir, "resume.tex")
         
         # Convert user data to dictionary
         user = User.query.filter_by(id=current_user["id"]).first()
@@ -1172,16 +1253,12 @@ def generate_resume():
         print("Populated LaTeX written to file successfully.")
 
         # Compile the LaTeX file to PDF
-        compile_pdf(main_tex_path=output_tex_file, output_dir=output_directory)
+        compile_pdf(main_tex_path=output_tex_file, output_dir=user_output_dir)
         print("LaTeX file compiled to PDF successfully.")
 
-        # Path to the generated PDF
-        output_pdf_path = os.path.join(output_directory, "output.pdf")
-        print("PDF path generated successfully.")
-        
         # Return both the populated LaTeX content and the PDF file
         return jsonify({
-            "pdf_url": output_pdf_path,
+            "pdf_url": f"output/legacy/{current_user['id']}/resume.pdf",
             "latex_content": populated_content
         })
 
@@ -1191,7 +1268,7 @@ def generate_resume():
 
 @app.route('/output/<path:filename>')
 def serve_pdf(filename):
-    return send_from_directory('output', filename)
+    return send_from_directory(OUTPUT_DIR, filename)
 
 # Resume Sessions List
 @app.route("/api/resume/sessions", methods=["GET"])
@@ -1214,14 +1291,379 @@ def get_resume_sessions():
         ]
     })
 
-# Forgot Password (stub)
+# ── Auth: Password Reset ───────────────────────────────────────────────────────
+
 @app.route("/api/auth/forgot-password", methods=["POST"])
 def forgot_password():
-    """Password reset stub — returns confirmation without sending email."""
+    """Send a password reset email via Resend."""
+    from mailer import send_password_reset as _send_reset
     data = request.json or {}
-    email = data.get("email", "")
-    # Stub: In production, trigger an email reset flow here.
+    email = data.get("email", "").strip().lower()
+    user = User.query.filter_by(email=email).first()
+    # Always return success to avoid email enumeration
+    if user:
+        raw_token = secrets.token_urlsafe(32)
+        user.reset_token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+        db.session.commit()
+        _send_reset(email, raw_token)
     return jsonify({"message": "If an account with that email exists, a reset link has been sent."}), 200
+
+@app.route("/api/auth/reset-password", methods=["POST"])
+def reset_password():
+    """Validate reset token and update password."""
+    data = request.json or {}
+    token = data.get("token", "")
+    new_password = data.get("password", "")
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    user = User.query.filter_by(reset_token_hash=token_hash).first()
+    if not user or not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
+        return jsonify({"error": "Invalid or expired reset link"}), 400
+    user.password = bcrypt.generate_password_hash(new_password).decode("utf-8")
+    user.reset_token_hash = None
+    user.reset_token_expires = None
+    db.session.commit()
+    return jsonify({"message": "Password updated. You can now log in."}), 200
+
+# ── Auth: Email Verification ───────────────────────────────────────────────────
+
+@app.route("/api/auth/send-verification", methods=["POST"])
+@jwt_required()
+def send_verification():
+    """Send email verification link to the current user."""
+    from mailer import send_verification_email as _send_verify
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user["id"])
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if user.email_verified:
+        return jsonify({"message": "Already verified"}), 200
+    raw_token = secrets.token_urlsafe(32)
+    user.verify_token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    db.session.commit()
+    _send_verify(user.email, raw_token)
+    return jsonify({"message": "Verification email sent"}), 200
+
+@app.route("/api/auth/verify-email", methods=["GET"])
+def verify_email():
+    """Verify email using token from the link."""
+    token = request.args.get("token", "")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    user = User.query.filter_by(verify_token_hash=token_hash).first()
+    if not user:
+        return jsonify({"error": "Invalid or expired verification link"}), 400
+    user.email_verified = True
+    user.verify_token_hash = None
+    db.session.commit()
+    return jsonify({"message": "Email verified successfully"}), 200
+
+# LinkedIn Profile Text Extraction
+@app.route("/api/linkedin/extract", methods=["POST"])
+@jwt_required()
+def extract_linkedin():
+    """Parse pasted LinkedIn profile text into structured education + experience data."""
+    from gpt_v2 import get_llm_client
+    data = request.json or {}
+    edu_text = data.get("education_text", "").strip()
+    exp_text = data.get("experience_text", "").strip()
+    section = data.get("section", "both")  # "education", "experience", or "both"
+
+    if section == "education":
+        if len(edu_text) < 30:
+            return jsonify({"error": "Please paste your Education section text"}), 400
+        prompt = f"""Extract all education entries from this LinkedIn Education section text.
+
+Return ONLY valid JSON array (no wrapping object):
+[
+  {{
+    "university": "Full institution name",
+    "degree": "Degree type e.g. Bachelor of Science",
+    "major": "Field of study",
+    "gpa": "",
+    "max_gpa": "4.0",
+    "start_date": "Mon YYYY e.g. Aug 2020",
+    "end_date": "Mon YYYY or Present",
+    "city": "", "state": "", "country": "",
+    "relevant_coursework": ""
+  }}
+]
+
+RULES: Do NOT invent anything. Ignore UI noise (buttons, icons, counts). Return raw JSON array only.
+
+Education text:
+{edu_text[:15000]}"""
+        try:
+            client = get_llm_client()
+            model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0, max_tokens=5000,
+            )
+            raw = response.choices[0].message.content.strip().strip("```json").strip("```").strip()
+            parsed = json.loads(raw)
+            if not isinstance(parsed, list):
+                parsed = parsed.get("education", [])
+            return jsonify({"education": parsed, "experience": []})
+        except json.JSONDecodeError:
+            return jsonify({"error": "Could not parse education. Try selecting just the Education section."}), 422
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    elif section == "experience":
+        if len(exp_text) < 30:
+            return jsonify({"error": "Please paste your Experience section text"}), 400
+        prompt = f"""Extract all work experience entries from this LinkedIn Experience section text.
+
+Return ONLY valid JSON array (no wrapping object):
+[
+  {{
+    "position": "Job title",
+    "company": "Company name",
+    "start_date": "Mon YYYY e.g. Jun 2022",
+    "end_date": "Mon YYYY or Present",
+    "current": false,
+    "description": "Description of the role combined into one paragraph"
+  }}
+]
+
+RULES: Do NOT invent anything. Set current=true if end is Present. Ignore UI noise. Return raw JSON array only.
+
+Experience text:
+{exp_text[:30000]}"""
+        try:
+            client = get_llm_client()
+            model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0, max_tokens=8000,
+            )
+            raw = response.choices[0].message.content.strip().strip("```json").strip("```").strip()
+            parsed = json.loads(raw)
+            if not isinstance(parsed, list):
+                parsed = parsed.get("experience", [])
+            return jsonify({"education": [], "experience": parsed})
+        except json.JSONDecodeError:
+            return jsonify({"error": "Could not parse experience. Try selecting just the Experience section."}), 422
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    profile_text = f"{edu_text}\n{exp_text}".strip()
+    if len(profile_text) < 100:
+        return jsonify({"error": "Please paste your LinkedIn profile text"}), 400
+
+    prompt = f"""Extract education and experience from this LinkedIn text. Return ONLY valid JSON:
+{{"education": [...], "experience": [...]}}
+Ignore UI noise. Do not invent anything.
+
+Text:
+{profile_text[:5000]}"""
+
+    try:
+        client = get_llm_client()
+        model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=2000,
+        )
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed = json.loads(raw)
+        return jsonify(parsed)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Could not parse the profile. Try pasting more text."}), 422
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Cover Letter Generation
+@app.route("/api/cover-letter/generate", methods=["POST"])
+@jwt_required()
+def generate_cover_letter():
+    """Generate a tailored cover letter from the user's profile and a job description."""
+    from gpt_v2 import get_llm_client
+    current_user = get_jwt_identity()
+    data = request.json or {}
+    job_description = data.get("job_description", "")
+    tone = data.get("tone", "professional")
+    highlights = data.get("highlights", "")
+
+    if len(job_description) < 100:
+        return jsonify({"error": "Job description too short"}), 400
+
+    # Fetch user profile data
+    profile = Profile.query.filter_by(user_id=current_user["id"]).first()
+    experiences = Experience.query.filter_by(user_id=current_user["id"]).order_by(Experience.end_date.desc()).limit(3).all()
+    skills_row = Skill.query.filter_by(user_id=current_user["id"]).first()
+
+    profile_text = ""
+    if profile:
+        profile_text += f"Name: {profile.full_name or ''}\n"
+        profile_text += f"LinkedIn: {profile.linkedin or ''}\n"
+    for exp in experiences:
+        profile_text += f"\nRole: {exp.position} at {exp.company}\n"
+        if exp.description:
+            profile_text += f"Description: {exp.description[:300]}\n"
+    if skills_row and skills_row.skills:
+        profile_text += f"\nSkills: {skills_row.skills[:300]}\n"
+    if highlights:
+        profile_text += f"\nUser wants to highlight: {highlights}\n"
+
+    tone_instruction = {
+        "professional": "Write in a formal, polished tone.",
+        "enthusiastic": "Write in an energetic, passionate tone that shows genuine excitement for the role.",
+        "concise": "Write concisely — keep it to 3 short paragraphs maximum.",
+    }.get(tone, "Write in a professional tone.")
+
+    prompt = f"""You are a professional career coach writing a cover letter. {tone_instruction}
+
+STRICT RULES:
+- ONLY use information from the user's profile below. Do NOT invent metrics, achievements, or technologies.
+- Do NOT fabricate any numbers or outcomes.
+- Use exact keywords from the job description for ATS optimization.
+- Address it to "Hiring Manager" if no name is available.
+- Keep it to 3-4 paragraphs, under 400 words.
+
+USER PROFILE:
+{profile_text}
+
+JOB DESCRIPTION:
+{job_description[:2000]}
+
+Write the full cover letter now (no subject line, no date header — just the letter body starting with "Dear Hiring Manager,"):"""
+
+    try:
+        client = get_llm_client()
+        model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=700,
+        )
+        cover_letter = response.choices[0].message.content.strip()
+        return jsonify({"cover_letter": cover_letter})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Resume PDF Download
+@app.route("/api/resume/download/<int:session_id>", methods=["GET"])
+@jwt_required()
+def download_resume(session_id):
+    """Serve the compiled PDF for a given session."""
+    current_user = get_jwt_identity()
+    session = GenerationSession.query.filter_by(id=session_id, user_id=current_user["id"]).first()
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+    pdf_path = os.path.join(OUTPUT_DIR, "sessions", str(session_id), "resume.pdf")
+    if not os.path.exists(pdf_path):
+        return jsonify({"error": "PDF not found"}), 404
+    return send_file(pdf_path, mimetype="application/pdf", as_attachment=True, download_name=f"resume-{session_id}.pdf")
+
+# ATS Score Preview
+@app.route("/api/resume/ats-preview", methods=["POST"])
+@jwt_required()
+def ats_preview():
+    """Compare user skills vs job description keywords, return a quick ATS score."""
+    current_user = get_jwt_identity()
+    data = request.json or {}
+    job_description = data.get("job_description", "")
+    if len(job_description) < 100:
+        return jsonify({"error": "Job description too short"}), 400
+
+    skill_row = Skill.query.filter_by(user_id=current_user["id"]).first()
+    raw_skills = skill_row.skills if skill_row and skill_row.skills else ""
+    user_skills = [s.strip().lower() for s in raw_skills.split(",") if s.strip()]
+
+    jd_lower = job_description.lower()
+    import re
+    jd_words = set(w.strip(".,();:\"'") for w in re.split(r'\s+', jd_lower) if len(w) > 3)
+
+    matched = [s for s in user_skills if s in jd_lower]
+    missing = [w for w in list(jd_words - set(user_skills)) if not w.isdigit()][:10]
+    score = int((len(matched) / max(len(user_skills), 1)) * 100)
+
+    return jsonify({
+        "score": min(score, 100),
+        "matched_keywords": matched[:15],
+        "missing_skills": missing,
+    })
+
+# ── Job Tracker CRUD ──────────────────────────────────────────────────────────
+
+def _job_to_dict(j: JobApplication) -> dict:
+    return {
+        "id": j.id,
+        "company": j.company,
+        "role": j.role,
+        "status": j.status,
+        "url": j.url,
+        "notes": j.notes,
+        "salary": j.salary,
+        "location": j.location,
+        "created_at": j.created_at.isoformat() if j.created_at else None,
+    }
+
+@app.route("/api/jobs", methods=["GET"])
+@jwt_required()
+def get_jobs():
+    current_user = get_jwt_identity()
+    jobs = JobApplication.query.filter_by(user_id=current_user["id"]).order_by(JobApplication.created_at.desc()).all()
+    return jsonify({"jobs": [_job_to_dict(j) for j in jobs]})
+
+@app.route("/api/jobs", methods=["POST"])
+@jwt_required()
+def create_job():
+    current_user = get_jwt_identity()
+    data = request.json or {}
+    if not data.get("company") or not data.get("role"):
+        return jsonify({"error": "company and role are required"}), 400
+    job = JobApplication(
+        user_id=current_user["id"],
+        company=data["company"],
+        role=data["role"],
+        status=data.get("status", "wishlist"),
+        url=data.get("url"),
+        notes=data.get("notes"),
+        salary=data.get("salary"),
+        location=data.get("location"),
+    )
+    db.session.add(job)
+    db.session.commit()
+    return jsonify(_job_to_dict(job)), 201
+
+@app.route("/api/jobs/<int:job_id>", methods=["PATCH"])
+@jwt_required()
+def update_job(job_id):
+    current_user = get_jwt_identity()
+    job = JobApplication.query.filter_by(id=job_id, user_id=current_user["id"]).first()
+    if not job:
+        return jsonify({"error": "Not found"}), 404
+    data = request.json or {}
+    for field in ("company", "role", "status", "url", "notes", "salary", "location"):
+        if field in data:
+            setattr(job, field, data[field])
+    db.session.commit()
+    return jsonify(_job_to_dict(job))
+
+@app.route("/api/jobs/<int:job_id>", methods=["DELETE"])
+@jwt_required()
+def delete_job(job_id):
+    current_user = get_jwt_identity()
+    job = JobApplication.query.filter_by(id=job_id, user_id=current_user["id"]).first()
+    if not job:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(job)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     app.run(debug=True)

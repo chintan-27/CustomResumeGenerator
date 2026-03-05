@@ -42,7 +42,7 @@ def handle_education(latex_content, data, education_latex_file):
         extracted_patterns = list(set(extract_patterns(education_latex)))
         for pattern in extracted_patterns:
             if pattern != "duration":
-                education_latex = education_latex.replace(f"xyz{pattern}xyz", education[pattern])
+                education_latex = education_latex.replace(f"xyz{pattern}xyz", str(education.get(pattern) or ""))
             else:
                 duration = f"{education['startmonth'][:3]} {education['startyear']} - {education['endmonth'][:3]} {education['endyear']}"
                 education_latex = education_latex.replace("xyzdurationxyz", duration)
@@ -121,7 +121,7 @@ def handle_experience(latex_content, data, keywords, jobdescription, experience_
                 experience_latex = experience_latex.replace("xyzdurationxyz", duration)
             elif pattern != "points":
                 # Replace other patterns with corresponding experience data
-                experience_latex = experience_latex.replace(f"xyz{pattern}xyz", experience[pattern])
+                experience_latex = experience_latex.replace(f"xyz{pattern}xyz", str(experience.get(pattern) or ""))
             else:
                 # Handle points replacement
                 points = ("\n".join([r"\item " + point.replace('%', r'\%').replace('$', r'\$').strip() 
@@ -161,12 +161,146 @@ def handle_projects(latex_content, data, points_count, jobdescription, keywords,
                 points = "\n".join([r"\item " + point.replace('%', r'\%').replace('$', r'\$') for point in points]) if points else r"\item No points available."
                 project_latex = project_latex.replace("xyzpointsxyz", points)
             else:
-                project_latex = project_latex.replace(f"xyz{pattern}xyz", project[pattern])
+                project_latex = project_latex.replace(f"xyz{pattern}xyz", str(project.get(pattern) or ""))
         final_projects_latex.append(project_latex)
 
     inbetween_latex = projects_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
     final_projects_latex = inbetween_latex.join(final_projects_latex)
     latex_content = latex_content.replace("xyzprojectsxyz", final_projects_latex)
+    return latex_content
+
+
+def _escape_latex(text: str) -> str:
+    """Escape special LaTeX characters in plain text."""
+    if not text:
+        return ""
+    # Order matters: backslash first, then others
+    replacements = [
+        ('\\', r'\textbackslash{}'),
+        ('&',  r'\&'),
+        ('%',  r'\%'),
+        ('$',  r'\$'),
+        ('#',  r'\#'),
+        ('_',  r'\_'),
+        ('^',  r'\^{}'),
+        ('~',  r'\textasciitilde{}'),
+    ]
+    for char, escaped in replacements:
+        text = text.replace(char, escaped)
+    return text
+
+
+def _format_bullets(bullets):
+    """Convert a list of bullet strings into LaTeX \\item lines."""
+    if not bullets:
+        return r"\item No points available."
+    return "\n".join(
+        r"\item " + _escape_latex(b.strip())
+        for b in bullets if b.strip()
+    )
+
+
+def make_latex_resume_v2(latex_content, data, template_dir):
+    """
+    Fill a LaTeX template using pre-generated content (V2 agentic flow).
+    No LLM calls — uses generated_bullets already attached to each experience/project.
+    """
+    global useMoreSpace, useLessSpace
+    useMoreSpace = 0
+    useLessSpace = 0
+
+    extracted_patterns = list(set(extract_patterns(latex_content)))
+
+    # Ensure projects is last (space handling)
+    if "projects" in extracted_patterns:
+        extracted_patterns.remove("projects")
+        extracted_patterns.append("projects")
+
+    education_latex_og = read_latex(os.path.join(template_dir, "education.tex"))
+    experience_latex_og = read_latex(os.path.join(template_dir, "experience.tex"))
+    projects_latex_og = read_latex(os.path.join(template_dir, "projects.tex"))
+
+    for pattern in extracted_patterns:
+
+        if pattern not in ['experience', 'education', 'projects', 'skills']:
+            latex_content = latex_content.replace(f"xyz{pattern}xyz", _escape_latex(str(data.get(pattern) or "")))
+
+        elif pattern == 'education':
+            useMoreSpace += (1 if len(data.get('education', [])) < 2 else 0)
+            useLessSpace += (1 if len(data.get('education', [])) > 2 else 0)
+            final_edu = []
+            for edu in data.get('education', []):
+                edu_latex = education_latex_og.split("-----")[0]
+                for p in list(set(extract_patterns(edu_latex))):
+                    if p == "duration":
+                        dur = f"{edu.get('startmonth','')[:3]} {edu.get('startyear','')} - {edu.get('endmonth','')[:3]} {edu.get('endyear','')}"
+                        edu_latex = edu_latex.replace("xyzdurationxyz", dur)
+                    else:
+                        edu_latex = edu_latex.replace(f"xyz{p}xyz", _escape_latex(str(edu.get(p) or "")))
+                final_edu.append(edu_latex)
+            sep = education_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
+            latex_content = latex_content.replace("xyzeducationxyz", sep.join(final_edu))
+
+        elif pattern == 'skills':
+            # Use pre-organized skills dict from V2 pipeline
+            skills_organized = data.get('skills_organized', {})
+            if skills_organized and isinstance(skills_organized, dict):
+                skills_lines = []
+                for category, skill_list in skills_organized.items():
+                    if skill_list:
+                        skills_lines.append(f"\\item \\textbf{{{_escape_latex(category)}}}: {', '.join(_escape_latex(s) for s in skill_list)}")
+                latex_content = latex_content.replace("xyzskillsxyz", "\n".join(skills_lines))
+            else:
+                # Fallback: raw skills string
+                raw = str(data.get('skills') or "")
+                latex_content = latex_content.replace("xyzskillsxyz", f"\\item {raw}" if raw else "")
+
+        elif pattern == 'experience':
+            experiences = data.get('experience', [])
+            useMoreSpace += (1 if len(experiences) < 3 else 0)
+            useLessSpace += (1 if len(experiences) > 3 else 0)
+            final_exp = []
+            for exp in experiences:
+                exp_latex = experience_latex_og.split("-----")[0]
+                for p in list(set(extract_patterns(exp_latex))):
+                    if p == "duration":
+                        dur = (f"{exp.get('startmonth','')[:3]} {exp.get('startyear','')} - "
+                               f"{exp.get('endmonth','')[:3]} {exp.get('endyear','')}"
+                               if exp.get('endmonth') and exp.get('endyear')
+                               else f"{exp.get('startmonth','')[:3]} {exp.get('startyear','')} - Present")
+                        exp_latex = exp_latex.replace("xyzdurationxyz", dur)
+                    elif p == "points":
+                        exp_latex = exp_latex.replace("xyzpointsxyz", _format_bullets(exp.get('generated_bullets', [])))
+                    else:
+                        exp_latex = exp_latex.replace(f"xyz{p}xyz", _escape_latex(str(exp.get(p) or "")))
+                final_exp.append((exp.get('startmonth', ''), exp.get('startyear', ''), exp_latex))
+            final_exp.sort(key=lambda x: (x[1], x[0]), reverse=True)
+            sep = experience_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
+            latex_content = latex_content.replace("xyzexperiencexyz", sep.join(e for _, _, e in final_exp))
+
+        elif pattern == 'projects':
+            projects = data.get('projects', [])
+            space = useMoreSpace - useLessSpace
+            # Limit projects based on space
+            if space <= -2:
+                projects = projects[:1]
+            elif space < 0:
+                projects = projects[:2]
+            else:
+                projects = projects[:3]
+
+            final_proj = []
+            for proj in projects:
+                proj_latex = projects_latex_og.split("-----")[0]
+                for p in list(set(extract_patterns(proj_latex))):
+                    if p == "points":
+                        proj_latex = proj_latex.replace("xyzpointsxyz", _format_bullets(proj.get('generated_bullets', [])))
+                    else:
+                        proj_latex = proj_latex.replace(f"xyz{p}xyz", _escape_latex(str(proj.get(p) or "")))
+                final_proj.append(proj_latex)
+            sep = projects_latex_og.split("-----")[1].split(":")[1].strip() + "\n"
+            latex_content = latex_content.replace("xyzprojectsxyz", sep.join(final_proj))
+
     return latex_content
 
 
@@ -193,7 +327,7 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
         if pattern not in ['experience', 'education', 'projects', 'skills']:
             if pattern == 'specialization':
                 data[pattern] = ", " + pattern
-            latex_content = latex_content.replace(f"xyz{pattern}xyz", data[pattern])
+            latex_content = latex_content.replace(f"xyz{pattern}xyz", str(data.get(pattern) or ""))
 
         # Handle Skills
         elif pattern == "skills":
@@ -305,7 +439,7 @@ def compile_pdf(main_tex_path: str, output_dir: str):
         os.makedirs(output_dir, exist_ok=True)
 
         # Run latexmk to compile LaTeX into PDF
-        subprocess.run(
+        result = subprocess.run(
             ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + output_dir, main_tex_path],
             check=True,
             stdout=subprocess.PIPE,
@@ -314,6 +448,17 @@ def compile_pdf(main_tex_path: str, output_dir: str):
 
         print("✅ LaTeX compilation successful!")
 
+        # Clean up auxiliary files, keep only .tex and .pdf
+        aux_extensions = {".aux", ".log", ".fls", ".fdb_latexmk", ".synctex.gz", ".out", ".toc"}
+        for f in os.listdir(output_dir):
+            if os.path.splitext(f)[1] in aux_extensions:
+                os.remove(os.path.join(output_dir, f))
+
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error compiling LaTeX: {e.stderr.decode()}")
+        stdout = e.stdout.decode() if e.stdout else ""
+        stderr = e.stderr.decode() if e.stderr else ""
+        # Extract the actual LaTeX error lines (lines starting with !)
+        error_lines = [l for l in stdout.split("\n") if l.startswith("!") or "Error" in l or "error" in l]
+        print(f"❌ LaTeX error:\n" + "\n".join(error_lines[:20]) if error_lines else stdout[-2000:])
+        print(f"❌ stderr: {stderr[-500:]}")
         raise RuntimeError("LaTeX compilation failed!")

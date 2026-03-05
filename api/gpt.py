@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 from collections import defaultdict
@@ -15,13 +16,17 @@ subskilldict = defaultdict(list, {
 })
 
 
-load_dotenv()  # Load environment variables from a .env file
+_ENV_PATH = Path(os.path.abspath(__file__)).parent / ".env"
+load_dotenv(_ENV_PATH, override=True)
 
 # Flexible LLM configuration - supports OpenAI, Azure, UF Navigator, or any OpenAI-compatible API
 def get_llm_client():
     """Create an OpenAI-compatible client based on environment configuration."""
+    load_dotenv(_ENV_PATH, override=True)
     base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
     api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY")
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    print(f"[gpt.py] get_llm_client: env_path={_ENV_PATH}, base_url={base_url}, model={model}, key={'SET' if api_key else 'MISSING'}")
 
     if not api_key:
         raise ValueError("No API key found. Set LLM_API_KEY, OPENAI_KEY, or OPENAI_API_KEY environment variable.")
@@ -32,9 +37,8 @@ def get_model_name():
     """Get the model name from environment or use default."""
     return os.getenv("LLM_MODEL", "gpt-4o-mini")
 
-client = get_llm_client()
-
 def getKeyWords(jobdescription: str) -> list:
+    client = get_llm_client()
     response = client.chat.completions.create(
         model=get_model_name(),
         messages=[
@@ -45,6 +49,7 @@ def getKeyWords(jobdescription: str) -> list:
     return keywords.split(", ")
 
 def getJobField(jobdescription: str) -> str:
+    client = get_llm_client()
     response = client.chat.completions.create(
         model=get_model_name(),
         messages=[
@@ -55,6 +60,7 @@ def getJobField(jobdescription: str) -> str:
     return job_field
 
 def getSkills(jobdescription: str, skills: str) -> dict:
+    client = get_llm_client()
     field = getJobField(jobdescription)
     subskills = subskilldict[field]
     response = client.chat.completions.create(
@@ -67,6 +73,7 @@ def getSkills(jobdescription: str, skills: str) -> dict:
     return skills_content
 
 def getRelevanceScore(jobdescription: str, experience_or_project: str) -> int:
+    client = get_llm_client()
     response = client.chat.completions.create(
         model=get_model_name(),
         messages=[
@@ -86,6 +93,7 @@ def getRelevanceScore(jobdescription: str, experience_or_project: str) -> int:
     return int(score)
 
 def extractExperienceAndSkills(jobdescription: str) -> dict:
+    client = get_llm_client()
     response = client.chat.completions.create(
         model=get_model_name(),
         messages=[
@@ -110,9 +118,10 @@ def extractExperienceAndSkills(jobdescription: str) -> dict:
     return years_of_experience, relevant_skills, keywords
 
 def generatePoints(data, typestr, jobdescription, keywords, points_count):
+    client = get_llm_client()
     desc = data["description"]
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=get_model_name(),
         messages=[
             {
                 "role": "user",
@@ -143,8 +152,9 @@ def generatePoints(data, typestr, jobdescription, keywords, points_count):
     return generated_points  # Return only the required number of points
 
 def generateProject(jobdescription):
+    client = get_llm_client()
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=get_model_name(),
         messages=[
             {
                 "role": "user",
