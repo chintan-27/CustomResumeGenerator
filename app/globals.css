@@ -48,6 +48,20 @@ body {
 .animate-float-up { animation: float-up 4s ease-in-out infinite; }
 .animate-float-down { animation: float-down 3.5s ease-in-out infinite 0.5s; }
 
+/* Dark mode */
+.dark {
+  --color-bg: #0f1f18;
+  --color-surface: #162820;
+  --color-fg: #f5f4ef;
+  --color-muted: #9ca3af;
+  --color-border: #1e3a2f;
+}
+
+.dark body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
 /* Noise texture overlay for dark sections */
 .noise::after {
   content: '';
