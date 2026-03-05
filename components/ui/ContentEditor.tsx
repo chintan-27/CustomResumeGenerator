@@ -21,13 +21,13 @@ const ContentEditor: React.FC<ContentEditorProps> = ({
 
   const highlightKeywords = (text: string) => {
     if (!keywordsUsed.length) return text;
-
     let highlighted = text;
     keywordsUsed.forEach((keyword) => {
-      const regex = new RegExp(`(${keyword})`, "gi");
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`(${escaped})`, "gi");
       highlighted = highlighted.replace(
         regex,
-        '<span class="bg-yellow-200 px-1 rounded">$1</span>'
+        '<mark style="background:#fef08a;color:#1a1a1a;padding:0 2px;border-radius:3px;">$1</mark>'
       );
     });
     return highlighted;
@@ -44,76 +44,82 @@ const ContentEditor: React.FC<ContentEditorProps> = ({
   };
 
   return (
-    <div className={`border rounded-lg p-4 bg-white ${className}`}>
-      {/* Original text - collapsed by default */}
-      <details className="mb-3">
-        <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+    <div
+      className={`rounded-2xl border overflow-hidden transition-all duration-200 ${
+        approved
+          ? "border-[#2d6a4f]/30 bg-[#2d6a4f]/5"
+          : "border-stone-200 bg-white"
+      } ${className}`}
+    >
+      {/* Original text toggle */}
+      <details className="group">
+        <summary className="px-5 pt-4 pb-2 text-xs font-medium text-[#6b7280] cursor-pointer hover:text-[#1a1a1a] select-none list-none flex items-center gap-1.5">
+          <svg
+            className="w-3 h-3 transition-transform group-open:rotate-90"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
           View original description
         </summary>
-        <p className="mt-2 text-sm text-gray-600 bg-gray-50 p-3 rounded">{originalText}</p>
+        <p className="mx-5 mb-3 text-sm text-[#6b7280] bg-stone-50 border border-stone-200 rounded-xl p-3 leading-relaxed">
+          {originalText}
+        </p>
       </details>
 
-      {/* Generated text */}
-      <div className="mb-3">
-        <label className="text-sm font-medium text-gray-700 mb-1 block">
-          Generated bullet point:
-        </label>
+      {/* Generated bullet */}
+      <div className="px-5 pb-4">
+        <p className="text-xs font-medium text-[#6b7280] mb-2">Generated bullet point:</p>
         {isEditing ? (
           <textarea
             value={editedText}
             onChange={(e) => setEditedText(e.target.value)}
-            className="w-full p-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50 text-sm text-[#1a1a1a] focus:outline-none focus:ring-2 focus:ring-[#2d6a4f]/20 focus:border-[#2d6a4f] resize-none leading-relaxed"
             rows={3}
           />
         ) : (
           <p
-            className="text-sm p-3 bg-blue-50 rounded-lg"
-            dangerouslySetInnerHTML={{ __html: highlightKeywords(generatedText) }}
+            className="text-sm text-[#1a1a1a] bg-stone-50 rounded-xl px-4 py-3 leading-relaxed break-words"
+            dangerouslySetInnerHTML={{ __html: highlightKeywords(isEditing ? editedText : generatedText) }}
           />
         )}
       </div>
 
-      {/* Keywords used */}
+      {/* Keywords */}
       {keywordsUsed.length > 0 && (
-        <div className="mb-3">
-          <span className="text-xs text-gray-500">Keywords used: </span>
-          {keywordsUsed.map((keyword, i) => (
+        <div className="px-5 pb-4 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-[#6b7280]">Keywords used:</span>
+          {keywordsUsed.map((kw, i) => (
             <span
               key={i}
-              className="inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded mr-1 mb-1"
+              className="text-xs px-2.5 py-1 bg-[#2d6a4f]/10 text-[#2d6a4f] rounded-full border border-[#2d6a4f]/20 font-medium"
             >
-              {keyword}
+              {kw}
             </span>
           ))}
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2">
+      {/* Actions */}
+      <div className="px-5 pb-4 flex items-center gap-2">
         <button
           onClick={() => setIsEditing(!isEditing)}
-          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-gray-50 transition"
+          className="px-4 py-2 text-xs font-medium text-[#6b7280] border border-stone-200 rounded-full hover:bg-stone-100 transition-colors"
         >
           {isEditing ? "Preview" : "Edit"}
         </button>
         <button
-          onClick={handleApprove}
-          className={`text-sm px-3 py-1.5 rounded-lg transition ${
+          onClick={approved ? handleReject : handleApprove}
+          className={`px-4 py-2 text-xs font-semibold rounded-full transition-all duration-200 ${
             approved
-              ? "bg-green-500 text-white"
-              : "bg-green-100 text-green-700 hover:bg-green-200"
+              ? "bg-[#2d6a4f] text-white shadow-sm shadow-[#2d6a4f]/20"
+              : "bg-[#2d6a4f]/10 text-[#2d6a4f] hover:bg-[#2d6a4f] hover:text-white"
           }`}
         >
-          {approved ? "Approved" : "Approve"}
+          {approved ? "✓ Approved" : "Approve"}
         </button>
-        {approved && (
-          <button
-            onClick={handleReject}
-            className="text-sm px-3 py-1.5 text-red-600 hover:text-red-700"
-          >
-            Undo
-          </button>
-        )}
       </div>
     </div>
   );
