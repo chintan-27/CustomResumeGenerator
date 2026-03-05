@@ -64,6 +64,22 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    id: "certifications", label: "Certifications",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+      </svg>
+    ),
+  },
+  {
+    id: "publications", label: "Publications",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    ),
+  },
 ];
 
 const Dashboard: React.FC = () => {
@@ -448,6 +464,98 @@ const Dashboard: React.FC = () => {
                 <p className="text-[#6b7280] text-center py-8 text-sm">No skills added yet</p>
               )}
             </div>
+          </div>
+        );
+
+      case "certifications":
+        return (
+          <div className="space-y-5">
+            <h2 className="text-2xl font-bold text-[#1a1a1a]">Certifications</h2>
+            {dashboardData?.certifications?.length > 0 ? (
+              <div className="space-y-3">
+                {dashboardData.certifications.map((c: any, i: number) => (
+                  <div key={i} className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="font-bold text-[#1a1a1a]">{c.name}</h3>
+                        <p className="text-[#2d6a4f] font-semibold text-sm mt-0.5">{c.issuer}</p>
+                        <div className="flex flex-wrap gap-3 mt-2">
+                          {c.date_issued && (
+                            <span className="text-xs text-stone-400" style={{ fontFamily: "var(--font-mono)" }}>
+                              Issued {c.date_issued}
+                            </span>
+                          )}
+                          {c.expiry_date && (
+                            <span className="text-xs text-stone-400" style={{ fontFamily: "var(--font-mono)" }}>
+                              Expires {c.expiry_date}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {c.link && (
+                        <a href={c.link} target="_blank" rel="noopener noreferrer"
+                          className="flex-shrink-0 text-xs font-semibold text-[#2d6a4f] hover:underline flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          Verify
+                        </a>
+                      )}
+                    </div>
+                    {c.credential_id && (
+                      <p className="mt-2 text-xs text-stone-400" style={{ fontFamily: "var(--font-mono)" }}>
+                        ID: {c.credential_id}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState label="No certifications added yet" />
+            )}
+          </div>
+        );
+
+      case "publications":
+        return (
+          <div className="space-y-5">
+            <h2 className="text-2xl font-bold text-[#1a1a1a]">Publications</h2>
+            {dashboardData?.publications?.length > 0 ? (
+              <div className="space-y-3">
+                {dashboardData.publications.map((p: any, i: number) => (
+                  <div key={i} className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
+                    <h3 className="font-bold text-[#1a1a1a] leading-snug">{p.title}</h3>
+                    <p className="text-sm text-[#6b7280] mt-1">{p.authors}</p>
+                    <div className="flex flex-wrap items-center gap-3 mt-2">
+                      <span className="text-xs font-medium text-[#2d6a4f]">{p.venue}</span>
+                      {p.year && (
+                        <span className="text-xs text-stone-400" style={{ fontFamily: "var(--font-mono)" }}>{p.year}</span>
+                      )}
+                      {p.doi && (
+                        <span className="text-xs text-stone-400" style={{ fontFamily: "var(--font-mono)" }}>DOI: {p.doi}</span>
+                      )}
+                    </div>
+                    {p.abstract && (
+                      <p className="mt-3 text-sm text-[#6b7280] leading-relaxed border-t border-stone-100 pt-3 line-clamp-3">
+                        {p.abstract}
+                      </p>
+                    )}
+                    {p.link && (
+                      <a href={p.link} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-[#2d6a4f] hover:underline"
+                        style={{ fontFamily: "var(--font-mono)" }}>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        View Paper
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState label="No publications added yet" />
+            )}
           </div>
         );
 
