@@ -1,10 +1,6 @@
 {
   "id": "skills-first",
-  "name": "Skills First (2026 Trend)",
-  "description": "Skills prominently featured at top for maximum ATS keyword matching",
-  "ats_compliant": true,
-  "section_order": ["skills", "experience", "projects", "education"],
-  "supports_two_page": true,
-  "font": "Computer Modern",
-  "margins": "0.5in"
+  "name": "Skills First",
+  "description": "Skills prominent at top — optimized for ATS keyword scanning",
+  "ats_compliant": true
 }

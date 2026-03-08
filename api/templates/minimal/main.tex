@@ -1,46 +1,47 @@
-\documentclass[a4paper,11pt]{article}
-\usepackage[left=0.75in, right=0.75in, top=0.6in, bottom=0.6in]{geometry}
-\usepackage{titlesec}
+\documentclass[11pt,letterpaper]{article}
+\usepackage[top=0.7in,bottom=0.7in,left=0.7in,right=0.7in]{geometry}
 \usepackage{enumitem}
-\usepackage{hyperref}
-\usepackage{fontawesome}
-
-% Minimal section styling - just bold text, no lines
-\titleformat{\section}{\bfseries\normalsize\uppercase}{}{0em}{}
-\titlespacing*{\section}{0pt}{14pt}{8pt}
-
-\setlist[itemize]{leftmargin=12pt, itemsep=0pt, topsep=3pt, parsep=0pt}
-\hypersetup{colorlinks=true, linkcolor=black, urlcolor=black}
-
-% Remove paragraph indentation
+\usepackage[hidelinks]{hyperref}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \setlength{\parindent}{0pt}
+\pagenumbering{gobble}
+
+% Em-dash bullets for a minimal, typographic feel
+\def\labelitemi{---}
+
+\newcommand{\resumesection}[1]{%
+  \vspace{10pt}%
+  {\textsc{#1}}%
+  \vspace{4pt}%
+}
 
 \begin{document}
-\pagestyle{empty}
 
-% Minimal header
-\begin{center}
-    {\Large\bfseries xyznamexyz}\\[6pt]
-    {\small xyzemailxyz \quad xyznumberxyz \quad xyzlinkedinxyz \quad xyzgithubxyz}
-\end{center}
+{\centering
+  {\Large\bfseries xyznamexyz}\\[6pt]
+  \hrule
+  \vspace{4pt}
+  \small xyzphonexyz\quad xyzlinkedinxyz\quad xyzemailxyz\quad xyzgithubxyz\\
+}
 
 \vspace{8pt}
 
-\section*{Experience}
+\resumesection{Education}\\
+xyzeducationxyz
+
+\resumesection{Experience}\\
 xyzexperiencexyz
 
-\section*{Projects}
+\resumesection{Projects}\\
 xyzprojectsxyz
 
-\section*{Skills}
-\begin{itemize}
-   xyzskillsxyz
+\resumesection{Technical Skills}\\
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt,topsep=4pt]
+xyzskillsxyz
 \end{itemize}
 
-\section*{Education}
-\begin{itemize}
-    xyzeducationxyz
-\end{itemize}
-{\small\textit{Coursework: xyzrelevantcourseworkxyz}}
+xyzcertsectionxyz
+xyzpubsectionxyz
 
 \end{document}

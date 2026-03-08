@@ -1,0 +1,6 @@
+{
+  "id": "ats-clean",
+  "name": "ATS Clean",
+  "description": "Maximum ATS compatibility — zero color, zero graphics, plain text layout",
+  "ats_compliant": true
+}

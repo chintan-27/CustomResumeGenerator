@@ -1,10 +1,6 @@
 {
   "id": "executive",
   "name": "Executive",
-  "description": "Elegant design with larger margins, suitable for senior roles",
-  "ats_compliant": true,
-  "section_order": ["experience", "skills", "education", "projects"],
-  "supports_two_page": true,
-  "font": "Computer Modern",
-  "margins": "0.8in"
+  "description": "Wider margins and generous line spacing — polished for senior roles",
+  "ats_compliant": true
 }

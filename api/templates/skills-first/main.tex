@@ -1,54 +1,45 @@
-\documentclass[a4paper,10pt]{article}
-\usepackage[left=0.5in, right=0.5in, top=0.4in, bottom=0.4in]{geometry}
-\usepackage{titlesec}
+\documentclass[10pt,letterpaper]{article}
+\usepackage[top=0.5in,bottom=0.5in,left=0.5in,right=0.5in]{geometry}
 \usepackage{enumitem}
-\usepackage{hyperref}
-\usepackage{fontawesome}
+\usepackage[hidelinks]{hyperref}
+\usepackage[T1]{fontenc}
 \usepackage{xcolor}
+\definecolor{navy}{HTML}{003366}
+\setlength{\parindent}{0pt}
+\pagenumbering{gobble}
 
-% Bold section headers with line
-\definecolor{headerblue}{RGB}{0, 51, 102}
-\titleformat{\section}{\bfseries\large}{}{0em}{}[\titlerule]
-\titlespacing*{\section}{0pt}{10pt}{5pt}
-
-\setlist[itemize]{leftmargin=*, itemsep=-2pt, topsep=2pt}
-\hypersetup{colorlinks=true, urlcolor=headerblue}
+\newcommand{\resumesection}[1]{%
+  \vspace{6pt}%
+  \textcolor{navy}{\textbf{#1}}%
+  \vspace{-6pt}\\%
+  \textcolor{navy}{\hrule}%
+  \vspace{3pt}%
+}
 
 \begin{document}
-\pagestyle{empty}
 
-% Header
-\begin{center}
-    {\LARGE\bfseries xyznamexyz}\\[6pt]
-    {\small xyzemailxyz \textbar{} xyznumberxyz \textbar{} \href{xyzlinkedinxyz}{LinkedIn} \textbar{} \href{xyzgithubxyz}{GitHub} \textbar{} \href{xyzwebsitexyz}{Website}}
-\end{center}
+{\centering
+  {\large\bfseries xyznamexyz}\\[3pt]
+  \small xyzphonexyz\ $|$\ xyzemailxyz\ $|$\ xyzlinkedinxyz\ $|$\ xyzgithubxyz\\
+}
 
-\vspace{-8pt}
+\vspace{4pt}
 
-% SKILLS FIRST - Prominent placement for ATS
-\section*{Technical Skills}
-\vspace{-3pt}
-\begin{itemize}
-   xyzskillsxyz
+\resumesection{Technical Skills}
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt,topsep=2pt]
+xyzskillsxyz
 \end{itemize}
 
-\vspace{-8pt}
-\section*{Professional Experience}
-\vspace{-3pt}
+\resumesection{Experience}
 xyzexperiencexyz
 
-\vspace{-8pt}
-\section*{Projects}
-\vspace{-3pt}
+\resumesection{Projects}
 xyzprojectsxyz
 
-\vspace{-8pt}
-\section*{Education}
-\vspace{-3pt}
-\begin{itemize}
-    xyzeducationxyz
-\end{itemize}
-\vspace{-3pt}
-{\small\textbf{Relevant Coursework:} xyzrelevantcourseworkxyz}
+\resumesection{Education}
+xyzeducationxyz
+
+xyzcertsectionxyz
+xyzpubsectionxyz
 
 \end{document}

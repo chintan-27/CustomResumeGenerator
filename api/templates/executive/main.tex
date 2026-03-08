@@ -1,46 +1,46 @@
-\documentclass[a4paper,11pt]{article}
-\usepackage[left=0.8in, right=0.8in, top=0.7in, bottom=0.7in]{geometry}
-\usepackage{titlesec}
+\documentclass[11pt,letterpaper]{article}
+\usepackage[top=0.75in,bottom=0.75in,left=0.75in,right=0.75in]{geometry}
 \usepackage{enumitem}
-\usepackage{hyperref}
-\usepackage{fontawesome}
-
-% Executive styling - elegant and spacious
-\titleformat{\section}{\bfseries\large\scshape}{}{0em}{}[\titlerule]
-\titlespacing*{\section}{0pt}{16pt}{10pt}
-
-\setlist[itemize]{leftmargin=15pt, itemsep=1pt, topsep=4pt}
-\hypersetup{colorlinks=true, linkcolor=black, urlcolor=black}
-
-\setlength{\parindent}{0pt}
+\usepackage[hidelinks]{hyperref}
+\usepackage[T1]{fontenc}
 \linespread{1.1}
+\setlength{\parindent}{0pt}
+\pagenumbering{gobble}
+
+\newcommand{\resumesection}[1]{%
+  \vspace{8pt}%
+  {\textsc{#1}}%
+  \vspace{-4pt}\\%
+  \hrule%
+  \vspace{4pt}%
+}
 
 \begin{document}
-\pagestyle{empty}
 
-% Executive header - prominent name
-\begin{center}
-    {\Huge\bfseries xyznamexyz}\\[10pt]
-    {\normalsize xyzemailxyz \quad\textbar\quad xyznumberxyz \quad\textbar\quad xyzlinkedinxyz \quad\textbar\quad xyzgithubxyz}
-\end{center}
+{\centering
+  {\Huge\bfseries xyznamexyz}\\[6pt]
+  \hrule height 2pt
+  \vspace{4pt}
+  \small xyzphonexyz\ $|$\ xyzemailxyz\ $|$\ xyzlinkedinxyz\ $|$\ xyzgithubxyz\\
+}
 
 \vspace{6pt}
 
-\section*{Professional Experience}
+\resumesection{Education}
+xyzeducationxyz
+
+\resumesection{Experience}
 xyzexperiencexyz
 
-\section*{Technical Expertise}
-\begin{itemize}
-   xyzskillsxyz
-\end{itemize}
-
-\section*{Education}
-\begin{itemize}
-    xyzeducationxyz
-\end{itemize}
-\textit{Relevant Coursework:} xyzrelevantcourseworkxyz
-
-\section*{Notable Projects}
+\resumesection{Projects}
 xyzprojectsxyz
+
+\resumesection{Technical Skills}
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt,topsep=3pt]
+xyzskillsxyz
+\end{itemize}
+
+xyzcertsectionxyz
+xyzpubsectionxyz
 
 \end{document}

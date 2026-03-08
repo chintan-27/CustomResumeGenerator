@@ -1,10 +1,6 @@
 {
   "id": "modern",
-  "name": "Modern Clean",
-  "description": "Clean lines with subtle section dividers and accent colors",
-  "ats_compliant": true,
-  "section_order": ["skills", "experience", "projects", "education"],
-  "supports_two_page": true,
-  "font": "Computer Modern",
-  "margins": "0.5in"
+  "name": "Modern",
+  "description": "Blue accent rules with a two-column header — clean and contemporary",
+  "ats_compliant": true
 }
