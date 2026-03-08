@@ -102,9 +102,23 @@ const QuestionsStep: React.FC<QuestionsStepProps> = ({
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {question.options?.map((option, i) => (
-                <label
+                <div
                   key={i}
-                  className={`flex items-center gap-3 p-3.5 bg-white border-2 rounded-xl cursor-pointer transition-all duration-200 ${
+                  role="radio"
+                  aria-checked={!isCustomActive && value === option}
+                  tabIndex={0}
+                  onClick={() => {
+                    setCustomText((prev) => ({ ...prev, [question.id]: "" }));
+                    handleAnswerChange(question.id, option);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === " " || e.key === "Enter") {
+                      e.preventDefault();
+                      setCustomText((prev) => ({ ...prev, [question.id]: "" }));
+                      handleAnswerChange(question.id, option);
+                    }
+                  }}
+                  className={`flex items-center gap-3 p-3.5 bg-white border-2 rounded-xl cursor-pointer select-none transition-all duration-200 ${
                     !isCustomActive && value === option
                       ? "border-[#2d6a4f] bg-[#2d6a4f]/5"
                       : isCustomActive
@@ -120,18 +134,7 @@ const QuestionsStep: React.FC<QuestionsStepProps> = ({
                   <span className={`text-sm font-medium ${!isCustomActive && value === option ? "text-[#2d6a4f]" : "text-[#1a1a1a]"}`}>
                     {option}
                   </span>
-                  <input
-                    type="radio"
-                    name={`question-${question.id}`}
-                    value={option}
-                    checked={!isCustomActive && value === option}
-                    onChange={(e) => {
-                      setCustomText((prev) => ({ ...prev, [question.id]: "" }));
-                      handleAnswerChange(question.id, e.target.value);
-                    }}
-                    className="sr-only"
-                  />
-                </label>
+                </div>
               ))}
             </div>
             <div className="flex items-center gap-2">
