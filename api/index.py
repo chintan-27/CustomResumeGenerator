@@ -1563,6 +1563,7 @@ def finalize_resume():
             "skills_organized": json.loads(session.skills_organized) if session.skills_organized else {},
             "experience": [
                 {
+                    "_id": exp.id,
                     "position": exp.position,
                     "company": exp.company,
                     "startmonth": exp.start_date.split(" ")[0] if exp.start_date else "",
@@ -1577,6 +1578,7 @@ def finalize_resume():
             ],
             "projects": [
                 {
+                    "_id": proj.id,
                     "name": proj.name,
                     "details": proj.details,
                     "link": proj.link,
@@ -1626,6 +1628,44 @@ def finalize_resume():
             print(f"[finalize] WARNING: Unreplaced patterns in LaTeX: {set(remaining)}")
         actual_pages = compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
         print(f"[finalize] Compiled PDF: {actual_pages} page(s)")
+
+        # 1-page overflow: remove least-relevant entities one at a time until it fits
+        if session.page_count == 1 and actual_pages > 1:
+            # Build relevance score per entity: total keywords used across all its bullets
+            exp_kw_score = {}   # exp_id -> int
+            proj_kw_score = {}  # proj_id -> int
+            for c in generated_content:
+                kws = c.keywords_used if isinstance(c.keywords_used, list) else []
+                if c.content_type == "experience_bullet":
+                    exp_kw_score[c.target_id] = exp_kw_score.get(c.target_id, 0) + len(kws)
+                elif c.content_type == "project_bullet":
+                    proj_kw_score[c.target_id] = proj_kw_score.get(c.target_id, 0) + len(kws)
+
+            # Combine into one list: (score, kind, id)  — sorted ascending (least relevant first)
+            candidates = (
+                [(exp_kw_score.get(e["_id"], 0), "experience", e["_id"]) for e in yaml_data["experience"]] +
+                [(proj_kw_score.get(p["_id"], 0), "project", p["_id"]) for p in yaml_data["projects"]]
+            )
+            candidates.sort(key=lambda x: x[0])  # lowest score = least relevant
+
+            for score, kind, eid in candidates:
+                if actual_pages <= 1:
+                    break
+                # Only remove if there's more than 1 entry of that kind left
+                if kind == "experience" and len(yaml_data["experience"]) <= 1:
+                    continue
+                if kind == "project" and len(yaml_data["projects"]) <= 1:
+                    continue
+                if kind == "experience":
+                    yaml_data["experience"] = [e for e in yaml_data["experience"] if e["_id"] != eid]
+                    print(f"[finalize] Removed least-relevant experience id={eid} (score={score}) to fit 1 page")
+                else:
+                    yaml_data["projects"] = [p for p in yaml_data["projects"] if p["_id"] != eid]
+                    print(f"[finalize] Removed least-relevant project id={eid} (score={score}) to fit 1 page")
+                populated_content = make_latex_resume_v2(latex_template, yaml_data, template_dir, page_count=1)
+                write_latex(file_path=output_tex_file, content=populated_content)
+                actual_pages = compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
+                print(f"[finalize] After removal: {actual_pages} page(s)")
 
         output_pdf_path = os.path.join(session_output_dir, "resume.pdf")
 
