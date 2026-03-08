@@ -18,8 +18,7 @@ import json
 import re
 import time
 import base64
-import urllib.request
-import urllib.error
+import requests as _requests
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, asdict
@@ -188,9 +187,13 @@ def fetch_github_readme(github_url: str, max_chars: int = 800) -> Optional[str]:
         owner, repo = match.group(1), match.group(2).rstrip('.git')
 
         api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-        req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "resume-builder"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
+        headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "resume-builder"}
+        token = os.getenv("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"token {token}"
+        resp = _requests.get(api_url, headers=headers, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
 
         content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
         # Strip markdown noise: remove badges, HTML tags, code fences
@@ -232,8 +235,10 @@ Return a JSON object with exactly these fields:
 }}
 
 IMPORTANT:
-- Keywords should be exact phrases from the job description for ATS matching
-- Include technical skills, tools, methodologies, and soft skills in keywords
+- Keywords must be SHORT (1-3 words each): tech skills, tools, languages, frameworks, methodologies
+- Good examples: "Python", "React", "machine learning", "REST APIs", "CI/CD", "data pipelines"
+- BAD examples (too long): "experience with large-scale distributed systems", "5+ years of Python development"
+- Include technical skills, tools, methodologies, and domain terms — avoid full sentences or requirements
 - Job field must be exactly one of the specified options
 """
 
@@ -294,12 +299,20 @@ Return a JSON object with exactly these fields:
     )
 
 
+def _has_metrics(text: str) -> bool:
+    """Return True if text already contains quantified metrics."""
+    if not text:
+        return False
+    # Matches: percentages, multipliers (2x, 3x), large numbers (>99), dollar amounts
+    return bool(re.search(r'\d+\s*[%x×+]|\$\s*\d+|\b[1-9]\d{2,}\b', text, re.IGNORECASE))
+
+
 def generate_clarifying_questions(
     job_analysis: JobAnalysis,
     experiences: List[Dict[str, Any]],
     projects: List[Dict[str, Any]],
     user_skills: str,
-    max_questions: int = 8,
+    max_questions: int = 6,
     prompt_instructions: Optional[PromptInstructions] = None
 ) -> List[ClarifyingQuestionData]:
     """
@@ -310,20 +323,25 @@ def generate_clarifying_questions(
     client = get_llm_client()
     model = get_model_name()
 
-    # Build context about user's data — detect thin descriptions for gap filling
+    # Build context about user's data — detect thin descriptions and existing metrics
     gap_flags = []
     experiences_summary_parts = []
     for i, exp in enumerate(experiences):
         desc = exp.get('description', '') or ''
         word_count = len(desc.split())
-        flag = ""
+        flags = []
         if word_count < 20:
-            flag = " [⚠ VERY SHORT description — prioritize gap_filling questions]"
+            flags.append("⚠ VERY SHORT description — prioritize gap_filling questions")
             gap_flags.append(f"Experience {i} ({exp.get('position', '?')} at {exp.get('company', '?')}) has only {word_count} words")
         elif word_count < 50:
-            flag = " [description is brief — consider gap_filling questions]"
+            flags.append("description is brief — consider gap_filling questions")
+        if _has_metrics(desc):
+            flags.append("has metrics: yes — SKIP metrics questions, ask verification or gap_filling only")
+        else:
+            flags.append("needs metrics: yes")
+        flag_str = " [" + " | ".join(flags) + "]" if flags else ""
         experiences_summary_parts.append(
-            f"- ID {i}: {exp.get('position', 'Unknown')} at {exp.get('company', 'Unknown')}{flag}: {desc[:250]}"
+            f"- ID {i}: {exp.get('position', 'Unknown')} at {exp.get('company', 'Unknown')}{flag_str}: {desc[:250]}"
         )
     experiences_summary = "\n".join(experiences_summary_parts)
 
@@ -331,13 +349,18 @@ def generate_clarifying_questions(
     for i, proj in enumerate(projects):
         desc = proj.get('description', '') or ''
         word_count = len(desc.split())
-        flag = ""
+        flags = []
         if word_count < 15:
-            flag = " [⚠ VERY SHORT — prioritize gap_filling]"
+            flags.append("⚠ VERY SHORT — prioritize gap_filling")
+        if _has_metrics(desc):
+            flags.append("has metrics: yes — SKIP metrics questions")
+        else:
+            flags.append("needs metrics: yes")
+        flag_str = " [" + " | ".join(flags) + "]" if flags else ""
         readme = proj.get('readme_content', '')
         readme_snippet = f"\n  README: {readme[:300]}" if readme else ""
         projects_summary_parts.append(
-            f"- ID {i}: {proj.get('name', 'Unknown')}{flag}: {desc[:200]}{readme_snippet}"
+            f"- ID {i}: {proj.get('name', 'Unknown')}{flag_str}: {desc[:200]}{readme_snippet}"
         )
     projects_summary = "\n".join(projects_summary_parts)
 
@@ -420,6 +443,10 @@ RULES:
 - Make questions specific to the user's actual experiences
 - Prioritize questions that align with job requirements
 - For thin descriptions (flagged above), ask gap_filling questions that reveal what was actually done
+- MAX 2 questions per entity (experience or project) — spread questions across different entities
+- If an entity is tagged "has metrics: yes", DO NOT ask metrics questions for it — ask verification or gap_filling instead
+- Do NOT ask the same question type (e.g., team size, impact percentage) more than once globally across all entities
+- Prefer diversity: cover different entities and different question types
 """
 
     try:
@@ -448,20 +475,45 @@ RULES:
         questions_data = []
 
     questions = []
-    for q in questions_data[:max_questions]:
-        # Skip if q is not a dict
+    seen_question_words: list = []
+    entity_question_counts: dict = {}
+
+    for q in questions_data:
         if not isinstance(q, dict):
             continue
+        q_text = q.get("question_text", "").strip()
+        if not q_text:
+            continue
+
+        # Cap per-entity questions at 2
+        entity_key = (q.get("target_entity", ""), q.get("target_id", 0))
+        if entity_question_counts.get(entity_key, 0) >= 2:
+            continue
+
+        # Word-overlap dedup: skip if >60% overlap with any seen question
+        words = set(q_text.lower().split())
+        is_dupe = any(
+            len(words & prev) / max(len(words), len(prev)) > 0.60
+            for prev in seen_question_words if prev
+        )
+        if is_dupe:
+            continue
+
         questions.append(ClarifyingQuestionData(
             question_type=q.get("question_type", "metrics"),
             target_entity=q.get("target_entity", "experience"),
             target_id=q.get("target_id", 0),
             target_name=q.get("target_name", ""),
-            question_text=q.get("question_text", ""),
-            input_type=q.get("input_type", "text"),
+            question_text=q_text,
+            input_type=q.get("input_type", "radio"),
             options=q.get("options"),
             context=q.get("context")
         ))
+        seen_question_words.append(words)
+        entity_question_counts[entity_key] = entity_question_counts.get(entity_key, 0) + 1
+
+        if len(questions) >= max_questions:
+            break
 
     return questions
 
@@ -474,7 +526,9 @@ def generate_grounded_bullets(
     user_answers: Dict[int, str],  # question_id -> answer
     relevant_questions: List[Dict[str, Any]],
     num_bullets: int = 3,
-    prompt_instructions: Optional[PromptInstructions] = None
+    prompt_instructions: Optional[PromptInstructions] = None,
+    user_skill_keywords: Optional[List[str]] = None,  # JD keywords confirmed in user's skill profile
+    entity_comment: Optional[str] = None,  # user-added context from SelectContentStep
 ) -> List[GeneratedBullet]:
     """
     Generate resume bullet points that are STRICTLY grounded in user's actual data.
@@ -519,6 +573,25 @@ Tech Stack: {entity_data.get('tech_stack', '')}{readme_section}
         if prompt_instructions.avoid:
             avoid_guidance = f"Avoid these overused phrases for this role type: {', '.join(prompt_instructions.avoid)}"
 
+    # Build user confirmed skills section
+    skill_kw_section = ""
+    if user_skill_keywords:
+        skill_kw_section = f"""
+CONFIRMED SKILLS FROM USER'S PROFILE MATCHING THIS JOB — YOU MUST weave these into the bullets:
+{', '.join(user_skill_keywords)}
+- These are technologies/skills the user CONFIRMED they have. They are fair game in bullets.
+- Distribute them naturally across bullets. Do NOT dump all into one bullet.
+- Use them when describing HOW the work was done (e.g. "built using Svelte", "deployed on Azure", "styled with Tailwind CSS")
+"""
+
+    # Build entity comment section
+    comment_section = ""
+    if entity_comment and entity_comment.strip():
+        comment_section = f"""
+USER'S ADDITIONAL CONTEXT FOR THIS {entity_type.upper()} (incorporate this):
+{entity_comment.strip()}
+"""
+
     prompt = f"""You are a professional resume writer. Write {num_bullets} concise, impactful bullet points for a resume.
 
 TARGET ROLE: {job_analysis.job_title}
@@ -528,24 +601,26 @@ TARGET ROLE: {job_analysis.job_title}
 
 USER-PROVIDED DETAILS:
 {answers_context if answers_context else "None provided"}
-
+{comment_section}
 RELEVANT SKILLS/TECHNOLOGIES FOR THIS ROLE: {', '.join(job_analysis.required_skills[:8])}
+JOB KEYWORDS (include as many as naturally fit — these are critical for ATS): {', '.join(job_analysis.keywords[:15])}
+{skill_kw_section}
 {bullet_guidance}
 {themes_guidance}
 {avoid_guidance}
 
 GUIDELINES:
-- Write naturally — do NOT force keywords into every bullet
+- Weave in confirmed skills and JOB KEYWORDS above whenever they apply to the actual work
 - Start each bullet with a strong, varied action verb (e.g. Built, Designed, Reduced, Improved, Automated, Collaborated)
-- Mention technologies and skills only when they genuinely appear in the description above
 - If the user provided metrics, use their exact numbers; otherwise describe scope/impact without inventing figures
 - Each bullet should be 1-2 lines, specific, and achievement-oriented
 - Sound like a human wrote it — avoid buzzword overload
 
 STRICT RULES:
-- Only reference what is explicitly in the data above — no invented details
-- Do not add tools, frameworks, or outcomes the user did not mention
+- Only reference work that is explicitly in the entity data above — no invented responsibilities
+- Do not add outcomes or achievements the user did not mention
 - Do not repeat the same action verb across bullets
+- Technologies from CONFIRMED SKILLS and JOB KEYWORDS may be mentioned as the tools used, as long as the experience type genuinely involves them
 
 Return JSON:
 {{
@@ -696,6 +771,156 @@ def calculate_relevance_score(
     return min(100, score)  # Cap at 100
 
 
+def score_content_relevance_ai(
+    job_analysis: JobAnalysis,
+    experiences: List[Dict[str, Any]],
+    projects: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Score all experiences and projects for relevance using a single LLM call.
+    Returns semantic relevance_score (0-100), keywords_to_include, and recommendation_reason per item.
+    Much more accurate than substring keyword matching.
+    """
+    client = get_llm_client()
+    model = get_model_name()
+
+    exp_lines = []
+    for exp in experiences:
+        readme_snip = ""
+        desc = (exp.get('description') or '')[:300]
+        summary = f"ID {exp.get('id')}: {exp.get('position', '')} at {exp.get('company', '')} — {desc}"
+        exp_lines.append(summary)
+
+    proj_lines = []
+    for proj in projects:
+        desc = (proj.get('description') or '')[:200]
+        tech = f" Tech: {proj.get('details', '')[:100]}" if proj.get('details') else ""
+        readme = f" README: {proj.get('readme_content', '')[:200]}" if proj.get('readme_content') else ""
+        summary = f"ID {proj.get('id')}: {proj.get('name', '')} — {desc}{tech}{readme}"
+        proj_lines.append(summary)
+
+    prompt = f"""You are a resume relevance expert. Score each experience and project for how relevant it is to the target job.
+
+TARGET JOB: {job_analysis.job_title}
+REQUIRED SKILLS: {', '.join(job_analysis.required_skills[:12])}
+KEY JD KEYWORDS: {', '.join(job_analysis.keywords[:20])}
+
+EXPERIENCES:
+{chr(10).join(exp_lines) if exp_lines else 'None'}
+
+PROJECTS:
+{chr(10).join(proj_lines) if proj_lines else 'None'}
+
+Score each item 0-100 using this rubric:
+- 80-100: Directly matches required skills/tech — hiring manager will immediately see relevance
+- 50-79: Related field or transferable skills — worth including
+- 20-49: Shows CS ability or problem-solving, tangentially relevant
+- 0-19: Unlikely to impress this hiring manager for this specific role
+
+For keywords_to_include: list JD keywords that could NATURALLY appear in bullets for this item (based on the tech or domain, even if not explicitly stated in the description yet).
+
+Return JSON:
+{{
+  "experiences": [
+    {{"id": <int>, "relevance_score": <0-100>, "keywords_to_include": ["kw1", "kw2"], "recommendation_reason": "1-sentence explanation"}}
+  ],
+  "projects": [
+    {{"id": <int>, "relevance_score": <0-100>, "keywords_to_include": ["kw1"], "recommendation_reason": "1-sentence explanation"}}
+  ]
+}}"""
+
+    try:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}])
+
+    result = parse_json_response(response.choices[0].message.content)
+
+    # Build lookup dicts keyed by item id
+    exp_scores = {item["id"]: item for item in result.get("experiences", []) if isinstance(item, dict) and "id" in item}
+    proj_scores = {item["id"]: item for item in result.get("projects", []) if isinstance(item, dict) and "id" in item}
+
+    return {"experiences": exp_scores, "projects": proj_scores}
+
+
+def trim_resume_to_one_page(yaml_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ask the LLM to trim bullet lists so the resume fits on one page.
+    Returns updated yaml_data with trimmed generated_bullets per experience/project.
+    """
+    client = get_llm_client()
+    model = get_model_name()
+
+    lines = []
+    for i, exp in enumerate(yaml_data.get("experience", [])):
+        bullets = exp.get("generated_bullets", [])
+        label = f"EXPERIENCE {i} — {exp.get('position', '')} at {exp.get('company', '')}:"
+        lines.append(label)
+        for b in bullets:
+            lines.append(f'- "{b}"')
+        lines.append("")
+
+    for i, proj in enumerate(yaml_data.get("projects", [])):
+        bullets = proj.get("generated_bullets", [])
+        label = f"PROJECT {i} — {proj.get('name', '')}:"
+        lines.append(label)
+        for b in bullets:
+            lines.append(f'- "{b}"')
+        lines.append("")
+
+    content_block = "\n".join(lines)
+
+    prompt = f"""The following resume content is generating more than 1 page. Trim the bullets so it fits on one page.
+
+{content_block}
+
+Trimming rules:
+- Max 2 bullets per experience (keep the most keyword-rich, achievement-oriented ones)
+- Max 2 bullets per project (prefer dropping a whole project over trimming to 1 bullet)
+- Shorten any bullet longer than 100 characters to one tight line — preserve the key achievement
+- If still too long, drop the least-relevant project entirely
+- Never drop experiences, just trim their bullets
+- Preserve quantified achievements and keywords over vague statements
+
+Return JSON with 0-based indices matching the input order:
+{{
+  "experiences": {{"0": ["bullet1", "bullet2"], "1": ["bullet1"]}},
+  "projects": {{"0": ["bullet1", "bullet2"], "1": ["bullet1"]}}
+}}
+Only include items that have bullets (omit empty ones)."""
+
+    try:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+    except Exception:
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt + "\n\nRespond with ONLY valid JSON, no other text."}])
+
+    result = parse_json_response(response.choices[0].message.content)
+
+    import copy
+    trimmed_data = copy.deepcopy(yaml_data)
+
+    exp_map = result.get("experiences", {})
+    for i, exp in enumerate(trimmed_data.get("experience", [])):
+        key = str(i)
+        if key in exp_map and isinstance(exp_map[key], list):
+            exp["generated_bullets"] = exp_map[key]
+
+    proj_map = result.get("projects", {})
+    trimmed_projects = []
+    for i, proj in enumerate(trimmed_data.get("projects", [])):
+        key = str(i)
+        if key in proj_map and isinstance(proj_map[key], list) and proj_map[key]:
+            proj["generated_bullets"] = proj_map[key]
+            trimmed_projects.append(proj)
+        elif key not in proj_map:
+            pass  # project was dropped by LLM
+        else:
+            trimmed_projects.append(proj)  # keep as-is if something unexpected
+    trimmed_data["projects"] = trimmed_projects
+
+    return trimmed_data
+
+
 def select_content_for_page_count(
     experiences: List[Dict[str, Any]],
     projects: List[Dict[str, Any]],
@@ -731,8 +956,8 @@ def select_content_for_page_count(
     # Select based on page count
     if page_count == 1:
         max_exp, max_proj = 3, 2
-        bullets_per_exp = [4, 2, 2]  # First exp gets more bullets
-        bullets_per_proj = [3, 3]
+        bullets_per_exp = [3, 2, 2]  # Tighter for 1-page
+        bullets_per_proj = [2, 2]
     else:  # 2 pages
         max_exp, max_proj = 5, 4
         bullets_per_exp = [4, 3, 3, 2, 2]

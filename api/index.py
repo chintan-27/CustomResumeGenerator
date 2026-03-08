@@ -26,7 +26,12 @@ from gpt_v2 import (
     generate_grounded_bullets,
     generate_skills_section,
     select_content_for_page_count,
+    score_content_relevance_ai,
+    trim_resume_to_one_page,
     fetch_github_readme,
+    get_llm_client,
+    get_model_name,
+    llm_call_with_retry,
     JobAnalysis,
     PromptInstructions
 )
@@ -39,6 +44,7 @@ CORS(app)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"  # Change to PostgreSQL/MySQL in production
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = "afeuhwoi2839or2224902h4r880820804#(@*$#)&093U"  # Change this in production
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -147,13 +153,19 @@ class GenerationSession(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     job_description = db.Column(db.Text, nullable=False)
     extracted_keywords = db.Column(db.JSON)  # Store as JSON
+    job_title = db.Column(db.String(255))
+    required_skills_json = db.Column(db.JSON)  # required_skills from job analysis
     job_field = db.Column(db.String(50))  # software, ai, data, etc.
     years_required = db.Column(db.Integer)
     session_state = db.Column(db.String(50), default='analyzing')  # analyzing, questions, generating, review, template, complete
-    template_id = db.Column(db.String(50), default='classic')
+    template_id = db.Column(db.String(50), default='jake')
     page_count = db.Column(db.Integer, default=1)
     skills_organized = db.Column(db.Text)  # JSON string of organized skills from V2 pipeline
     prompt_instructions = db.Column(db.Text)  # JSON string of role-specific prompt guidance
+    selected_experience_ids = db.Column(db.JSON)  # [1, 3, 5]
+    selected_project_ids    = db.Column(db.JSON)  # [2, 4]
+    entity_comments         = db.Column(db.JSON)  # {"exp_1": "...", "proj_2": "..."}
+    entity_keyword_hints    = db.Column(db.JSON)  # {"exp_3": ["Python","REST APIs"], "proj_10": []}
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 
@@ -194,6 +206,22 @@ class UserMetrics(db.Model):
 # Create the database
 with app.app_context():
     db.create_all()
+    # Add new columns that may be missing from existing databases (SQLite ALTER TABLE migration)
+    _migrations = [
+        "ALTER TABLE generation_session ADD COLUMN selected_experience_ids JSON",
+        "ALTER TABLE generation_session ADD COLUMN selected_project_ids JSON",
+        "ALTER TABLE generation_session ADD COLUMN entity_comments JSON",
+        "ALTER TABLE generation_session ADD COLUMN entity_keyword_hints JSON",
+        "ALTER TABLE generation_session ADD COLUMN job_title VARCHAR(255)",
+        "ALTER TABLE generation_session ADD COLUMN required_skills_json JSON",
+    ]
+    with db.engine.connect() as _conn:
+        _existing = {row[1] for row in _conn.execute(db.text("PRAGMA table_info(generation_session)")).fetchall()}
+        for _stmt in _migrations:
+            _col = _stmt.split("ADD COLUMN ")[1].split()[0]
+            if _col not in _existing:
+                _conn.execute(db.text(_stmt))
+        _conn.commit()
 
 # Signup Route
 @app.route("/api/auth/signup", methods=["POST"])
@@ -459,6 +487,82 @@ def get_dashboard_data():
     })
 
 # ============================================================================
+# BULLET REWRITE
+# ============================================================================
+
+@app.route("/api/resume/rewrite-bullet", methods=["POST"])
+@jwt_required()
+def rewrite_bullet():
+    """
+    Rewrite a single bullet point based on a user instruction.
+    Returns 3 distinct alternatives.
+    Used in the content review step for per-bullet AI editing.
+    """
+    d = request.json
+    bullet_text = d.get("bullet_text", "")
+    instruction = d.get("instruction", "")
+    entity_type = d.get("entity_type", "experience")  # "experience" or "project"
+    entity_name = d.get("entity_name", "")
+    entity_description = d.get("entity_description", "")
+    job_title = d.get("job_title", "")
+    job_keywords = d.get("job_keywords", [])  # list of keywords from job description
+
+    if not bullet_text or not instruction:
+        return jsonify({"error": "bullet_text and instruction are required"}), 400
+
+    keywords_str = ", ".join(job_keywords[:10]) if job_keywords else "none provided"
+
+    prompt = f"""You are editing a resume bullet point based on a specific instruction.
+
+Job Target: {job_title}
+{entity_type.capitalize()}: {entity_name}
+Context: {entity_description[:300]}
+Job keywords to incorporate where natural: {keywords_str}
+
+Original bullet:
+{bullet_text}
+
+Instruction: {instruction}
+
+Write 3 distinct rewrites of the bullet following the instruction. Each should:
+- Start with a strong action verb
+- Be one sentence, specific and achievement-oriented
+- Be grounded in the original content (don't invent new facts)
+- Naturally incorporate relevant job keywords where appropriate
+- Vary in phrasing, structure, or emphasis from each other
+
+Return ONLY a numbered list with exactly 3 items, no extra commentary:
+1. [first rewrite]
+2. [second rewrite]
+3. [third rewrite]"""
+
+    try:
+        client = get_llm_client()
+        model = get_model_name()
+        response = llm_call_with_retry(client, model, [{"role": "user", "content": prompt}])
+        raw = response.choices[0].message.content.strip()
+
+        # Parse numbered list — strip "1. ", "2. ", "3. " prefixes
+        import re as _re
+        lines = [l.strip() for l in raw.splitlines() if l.strip()]
+        alternatives = []
+        for line in lines:
+            # Match "1. text", "1) text", or just plain lines
+            cleaned = _re.sub(r"^\d+[\.\)]\s*", "", line).strip().strip('"').strip("'")
+            if cleaned:
+                alternatives.append(cleaned)
+
+        # Ensure exactly 3 (pad with the first if LLM returned fewer)
+        while len(alternatives) < 3:
+            alternatives.append(alternatives[0] if alternatives else bullet_text)
+        alternatives = alternatives[:3]
+
+        return jsonify({"alternatives": alternatives})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
 # GITHUB REPO SUMMARIZER
 # ============================================================================
 
@@ -466,45 +570,87 @@ def get_dashboard_data():
 @jwt_required()
 def summarize_github_repo():
     """
-    Use LLM to generate a concise resume-quality description of a GitHub repo.
-    Accepts the full README text + file tree so the AI can understand the project
-    even when the README is sparse.
+    Fetch README + file tree from GitHub (using GITHUB_TOKEN if set) then
+    call LLM to produce a resume-quality project description.
+    Frontend only sends lightweight metadata — no GitHub rate limit on client.
     """
-    d = request.json
-    repo_name = d.get("repo_name", "")
-    repo_description = d.get("repo_description", "")  # GitHub's one-liner
-    readme = d.get("readme", "")  # Full decoded README text
-    file_tree = d.get("file_tree", [])  # List of file/dir paths
+    import requests as _requests
+    import base64 as _base64
 
-    # Build context — README first, then structure
+    d = request.json
+    owner = d.get("owner", "")
+    repo_name = d.get("repo_name", "")
+    repo_description = d.get("repo_description", "")
+    default_branch = d.get("default_branch", "main")
+
+    # Build GitHub request headers — token gives 5000 req/hr vs 60 unauthenticated
+    gh_headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "resume-generator"}
+    github_token = os.getenv("GITHUB_TOKEN", "")
+    if github_token:
+        gh_headers["Authorization"] = f"token {github_token}"
+
+    readme = ""
+    file_tree = []
+
+    if owner and repo_name:
+        # Fetch README
+        try:
+            resp = _requests.get(
+                f"https://api.github.com/repos/{owner}/{repo_name}/readme",
+                headers=gh_headers, timeout=8,
+            )
+            if resp.status_code == 200:
+                raw = resp.json().get("content", "").replace("\n", "")
+                readme = _base64.b64decode(raw).decode("utf-8", errors="ignore")[:4000]
+                print(f"[github] README fetched for {owner}/{repo_name} ({len(readme)} chars)")
+            else:
+                print(f"[github] README fetch failed for {owner}/{repo_name}: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"[github] README fetch failed for {owner}/{repo_name}: {e}")
+
+        # Fetch file tree
+        try:
+            resp = _requests.get(
+                f"https://api.github.com/repos/{owner}/{repo_name}/git/trees/{default_branch}?recursive=1",
+                headers=gh_headers, timeout=8,
+            )
+            if resp.status_code == 200:
+                file_tree = [
+                    f["path"] for f in resp.json().get("tree", [])
+                    if f.get("type") in ("blob", "tree")
+                ][:80]
+                print(f"[github] Tree fetched for {owner}/{repo_name} ({len(file_tree)} paths)")
+            else:
+                print(f"[github] Tree fetch failed for {owner}/{repo_name}: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"[github] Tree fetch failed for {owner}/{repo_name}: {e}")
+
+    # Build LLM context — always call LLM even with minimal info (repo name alone is useful)
     parts = []
     if repo_description:
         parts.append(f"GitHub description: {repo_description}")
     if readme:
-        parts.append(f"README (full):\n{readme[:4000]}")
+        parts.append(f"README:\n{readme}")
     if file_tree:
-        tree_str = "\n".join(file_tree[:80])
-        parts.append(f"Repository file structure:\n{tree_str}")
+        parts.append(f"File structure:\n" + "\n".join(file_tree))
 
-    if not parts:
-        return jsonify({"description": ""}), 200
+    print(f"[github] Context for {repo_name}: description={bool(repo_description)}, readme={bool(readme)}, tree={len(file_tree)} files")
 
-    context = "\n\n".join(parts)
+    context_section = "\n\n".join(parts) if parts else "(No README or description available — infer from project name and file structure)"
 
     prompt = f"""You are writing a project description for a developer's resume.
 
 Project name: {repo_name}
 
-{context}
+{context_section}
 
 Write a concise 2-3 sentence description of what this project does, suitable for a resume bullet or summary.
 
 Guidelines:
 - Explain what the project accomplishes and why it's useful
-- Mention the core technologies actually used (from README or file structure)
+- Mention the core technologies actually used (from README or file structure if available)
 - Be specific — avoid vague phrases like "a web app" or "a tool"
-- If the README is thin, infer purpose from file structure and repo name
-- Do NOT invent features not supported by the provided content
+- If context is thin, make reasonable inferences from the project name and any file paths
 - Return ONLY the description text, no labels or preamble
 """
 
@@ -612,60 +758,54 @@ def delete_publication(pub_id):
 
 # Template configurations
 TEMPLATES = {
-    "classic": {
-        "id": "classic",
-        "name": "Classic Professional",
-        "description": "Traditional resume format with clear sections",
+    "jake": {
+        "id": "jake",
+        "name": "Jake's Resume",
+        "description": "The most popular Overleaf template — clean, timeless",
         "ats_compliant": True,
-        "section_order": ["education", "skills", "experience", "projects"],
+        "section_order": ["education", "experience", "projects", "skills"],
         "supports_two_page": True,
-        "preview_image": "/templates/classic/preview.png"
     },
     "modern": {
         "id": "modern",
-        "name": "Modern Clean",
-        "description": "Clean lines with subtle section dividers",
+        "name": "Modern Blue",
+        "description": "Clean lines with blue accent rule, two-col header",
         "ats_compliant": True,
-        "section_order": ["summary", "skills", "experience", "projects", "education"],
+        "section_order": ["education", "experience", "projects", "skills"],
         "supports_two_page": True,
-        "preview_image": "/templates/modern/preview.png"
     },
     "minimal": {
         "id": "minimal",
         "name": "Minimal",
-        "description": "Maximum white space, distraction-free",
+        "description": "Garamond-inspired, maximum whitespace, em-dash bullets",
         "ats_compliant": True,
-        "section_order": ["experience", "projects", "skills", "education"],
+        "section_order": ["education", "experience", "projects", "skills"],
         "supports_two_page": True,
-        "preview_image": "/templates/minimal/preview.png"
     },
     "skills-first": {
         "id": "skills-first",
-        "name": "Skills First (2026 Trend)",
-        "description": "Skills prominently featured at top for ATS",
+        "name": "Skills First",
+        "description": "ATS-optimized with skills at the top — 2026 trend",
         "ats_compliant": True,
         "section_order": ["skills", "experience", "projects", "education"],
         "supports_two_page": True,
-        "preview_image": "/templates/skills-first/preview.png"
     },
     "executive": {
         "id": "executive",
         "name": "Executive",
-        "description": "Larger margins, suitable for senior roles",
+        "description": "Bold header, small caps sections — for senior roles",
         "ats_compliant": True,
-        "section_order": ["summary", "experience", "skills", "education", "projects"],
+        "section_order": ["experience", "education", "skills", "projects"],
         "supports_two_page": True,
-        "preview_image": "/templates/executive/preview.png"
     },
-    "ats-optimized": {
-        "id": "ats-optimized",
-        "name": "ATS Optimized",
-        "description": "Plain text-like format for maximum ATS compatibility",
+    "ats-clean": {
+        "id": "ats-clean",
+        "name": "ATS Clean",
+        "description": "Zero color, ALL CAPS sections — maximum machine readability",
         "ats_compliant": True,
-        "section_order": ["skills", "experience", "projects", "education"],
+        "section_order": ["education", "experience", "projects", "skills"],
         "supports_two_page": True,
-        "preview_image": "/templates/ats-optimized/preview.png"
-    }
+    },
 }
 
 @app.route("/api/templates", methods=["GET"])
@@ -700,6 +840,8 @@ def start_generation_session():
             user_id=current_user["id"],
             job_description=job_description,
             extracted_keywords=job_analysis.keywords,
+            job_title=job_analysis.job_title,
+            required_skills_json=job_analysis.required_skills,
             job_field=job_analysis.job_field,
             years_required=job_analysis.years_required,
             session_state="questions",
@@ -733,54 +875,56 @@ def start_generation_session():
                 "id": proj.id,
                 "name": proj.name,
                 "description": proj.description,
-                "details": proj.details,
+                "details": proj.details,  # this is the tech stack field in the DB
                 "link": proj.link,
                 "readme_content": readme
             })
 
-        # Generate clarifying questions with role-specific guidance
-        questions = generate_clarifying_questions(
-            job_analysis,
-            experiences_data,
-            projects_data,
-            skills.skills if skills else "",
-            prompt_instructions=prompt_instructions
-        )
+        # AI-based relevance scoring — semantic, not substring matching
+        ai_scores = score_content_relevance_ai(job_analysis, experiences_data, projects_data)
+        ai_exp_scores = ai_scores.get("experiences", {})
+        ai_proj_scores = ai_scores.get("projects", {})
 
-        # Store questions in database
-        for q in questions:
-            question = ClarifyingQuestion(
-                session_id=session.id,
-                question_type=q.question_type,
-                target_entity=q.target_entity,
-                target_id=q.target_id,
-                target_name=q.target_name,
-                question_text=q.question_text,
-                input_type=q.input_type,
-                options=q.options,
-                context=q.context
-            )
-            db.session.add(question)
+        # Build entity_keyword_hints for later use in generate-draft
+        entity_keyword_hints = {}
 
+        scored_experiences = []
+        for exp in experiences_data:
+            scored_item = ai_exp_scores.get(exp.get('id'), {})
+            score = scored_item.get("relevance_score", 20)
+            reason = scored_item.get("recommendation_reason", "General experience")
+            kw_hints = scored_item.get("keywords_to_include", [])
+            entity_keyword_hints[f"exp_{exp.get('id')}"] = kw_hints
+            scored_experiences.append({
+                **exp,
+                "relevance_score": score,
+                "recommendation_reason": reason,
+                "suggested_highlight": f"We'll emphasize your {exp.get('position', '')} work to match the job description",
+            })
+
+        scored_projects = []
+        for proj in projects_data:
+            scored_item = ai_proj_scores.get(proj.get('id'), {})
+            score = scored_item.get("relevance_score", 20)
+            reason = scored_item.get("recommendation_reason", "Relevant project")
+            kw_hints = scored_item.get("keywords_to_include", [])
+            entity_keyword_hints[f"proj_{proj.get('id')}"] = kw_hints
+            scored_projects.append({
+                **proj,
+                "relevance_score": score,
+                "recommendation_reason": reason,
+                "suggested_highlight": f"We'll emphasize the {proj.get('name', '')} aspects",
+            })
+
+        # Persist keyword hints for use in generate-draft bullet injection
+        session.entity_keyword_hints = entity_keyword_hints
         db.session.commit()
 
-        # Return session data
         return jsonify({
             "session_id": session.id,
             "job_analysis": asdict(job_analysis),
-            "questions": [{
-                "id": q.id,
-                "question_type": q.question_type,
-                "target_entity": q.target_entity,
-                "target_id": q.target_id,
-                "target_name": q.target_name,
-                "question_text": q.question_text,
-                "input_type": q.input_type,
-                "options": q.options,
-                "context": q.context
-            } for q in ClarifyingQuestion.query.filter_by(session_id=session.id).all()],
-            "experiences": experiences_data,
-            "projects": projects_data
+            "experiences": scored_experiences,
+            "projects": scored_projects,
         })
 
     except Exception as e:
@@ -848,6 +992,142 @@ def answer_questions():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/resume/select-content", methods=["POST"])
+@jwt_required()
+def select_content():
+    """
+    Save user's selected experiences/projects and generate targeted clarifying questions.
+    Called after user picks which items to include.
+    """
+    current_user = get_jwt_identity()
+    data = request.json
+    session_id = data.get("session_id")
+    selected_exp_ids = data.get("selected_experience_ids", [])
+    selected_proj_ids = data.get("selected_project_ids", [])
+    entity_comments = data.get("comments", {})  # {"exp_1": "...", "proj_2": "..."}
+
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
+
+    session = GenerationSession.query.filter_by(id=session_id, user_id=current_user["id"]).first()
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    try:
+        # Save selection to session
+        session.selected_experience_ids = selected_exp_ids
+        session.selected_project_ids = selected_proj_ids
+        session.entity_comments = entity_comments
+        db.session.commit()
+
+        # Fetch ONLY selected experiences and projects
+        experiences = Experience.query.filter(
+            Experience.id.in_(selected_exp_ids),
+            Experience.user_id == current_user["id"]
+        ).all() if selected_exp_ids else []
+
+        projects = Project.query.filter(
+            Project.id.in_(selected_proj_ids),
+            Project.user_id == current_user["id"]
+        ).all() if selected_proj_ids else []
+
+        skills = Skill.query.filter_by(user_id=current_user["id"]).first()
+
+        job_analysis = JobAnalysis(
+            job_title=session.job_title or "",
+            job_field=session.job_field or "",
+            years_required=session.years_required or 0,
+            required_skills=session.required_skills_json or session.extracted_keywords or [],
+            preferred_skills=[],
+            keywords=session.extracted_keywords or [],
+            key_responsibilities=[],
+            company_values=[]
+        )
+
+        # Attach entity comments to experiences/projects
+        experiences_data = []
+        for exp in experiences:
+            comment_key = f"exp_{exp.id}"
+            experiences_data.append({
+                "id": exp.id,
+                "position": exp.position,
+                "company": exp.company,
+                "description": exp.description,
+                "start_date": exp.start_date,
+                "end_date": exp.end_date,
+                "current": exp.current,
+                "user_comment": entity_comments.get(comment_key, "")
+            })
+
+        projects_data = []
+        for proj in projects:
+            readme = None
+            if proj.link and "github.com" in proj.link:
+                readme = fetch_github_readme(proj.link)
+            comment_key = f"proj_{proj.id}"
+            projects_data.append({
+                "id": proj.id,
+                "name": proj.name,
+                "description": proj.description,
+                "details": proj.details,
+                "link": proj.link,
+                "readme_content": readme,
+                "user_comment": entity_comments.get(comment_key, "")
+            })
+
+        prompt_instructions_data = None
+        if session.prompt_instructions:
+            pi_dict = json.loads(session.prompt_instructions)
+            prompt_instructions_data = PromptInstructions(**pi_dict)
+
+        # Generate questions only for selected items
+        questions = generate_clarifying_questions(
+            job_analysis,
+            experiences_data,
+            projects_data,
+            skills.skills if skills else "",
+            prompt_instructions=prompt_instructions_data
+        )
+
+        # Clear old questions for this session, store new ones
+        ClarifyingQuestion.query.filter_by(session_id=session.id).delete()
+        for q in questions:
+            question = ClarifyingQuestion(
+                session_id=session.id,
+                question_type=q.question_type,
+                target_entity=q.target_entity,
+                target_id=q.target_id,
+                target_name=q.target_name,
+                question_text=q.question_text,
+                input_type=q.input_type,
+                options=q.options,
+                context=q.context
+            )
+            db.session.add(question)
+        db.session.commit()
+
+        return jsonify({
+            "questions": [{
+                "id": q.id,
+                "question_type": q.question_type,
+                "target_entity": q.target_entity,
+                "target_id": q.target_id,
+                "target_name": q.target_name,
+                "question_text": q.question_text,
+                "input_type": q.input_type,
+                "options": q.options,
+                "context": q.context
+            } for q in ClarifyingQuestion.query.filter_by(session_id=session.id).all()],
+            "experiences": experiences_data,
+            "projects": projects_data,
+        })
+
+    except Exception as e:
+        print(f"Error in select_content: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/resume/generate-draft", methods=["POST"])
 @jwt_required()
 def generate_draft():
@@ -873,19 +1153,33 @@ def generate_draft():
     try:
         # Reconstruct job analysis
         job_analysis = JobAnalysis(
-            job_title="",
+            job_title=session.job_title or "",
             job_field=session.job_field or "other",
             years_required=session.years_required or 0,
-            required_skills=[],
+            required_skills=session.required_skills_json or session.extracted_keywords or [],
             preferred_skills=[],
             keywords=session.extracted_keywords or [],
             key_responsibilities=[],
             company_values=[]
         )
 
-        # Fetch user data
-        experiences = Experience.query.filter_by(user_id=current_user["id"]).all()
-        projects = Project.query.filter_by(user_id=current_user["id"]).all()
+        # Fetch user data — respect content selection from select-content step
+        if session.selected_experience_ids:
+            experiences = Experience.query.filter(
+                Experience.id.in_(session.selected_experience_ids),
+                Experience.user_id == current_user["id"]
+            ).all()
+        else:
+            experiences = Experience.query.filter_by(user_id=current_user["id"]).all()
+
+        if session.selected_project_ids:
+            projects = Project.query.filter(
+                Project.id.in_(session.selected_project_ids),
+                Project.user_id == current_user["id"]
+            ).all()
+        else:
+            projects = Project.query.filter_by(user_id=current_user["id"]).all()
+
         skills = Skill.query.filter_by(user_id=current_user["id"]).first()
 
         # Get user answers
@@ -936,6 +1230,15 @@ def generate_draft():
 
         generated_content = []
 
+        # Compute which JD keywords the user confirmed in their skills profile
+        skills_text = (skills.skills or "").lower() if skills else ""
+        all_jd_terms = list(dict.fromkeys(job_analysis.keywords + job_analysis.required_skills))
+        user_skill_keywords = [kw for kw in all_jd_terms if kw.lower() in skills_text]
+
+        # Entity comments and keyword hints from select-content / start-session steps
+        entity_comments = session.entity_comments or {}
+        entity_keyword_hints = session.entity_keyword_hints or {}
+
         # Generate bullets for experiences
         for i, exp_data in enumerate(selection["experiences"]):
             if i > 0:
@@ -943,6 +1246,10 @@ def generate_draft():
             relevant_qs = [{"id": q.id, "question_text": q.question_text}
                          for q in questions
                          if q.target_entity == "experience" and q.target_id == exp_data.get("_original_index")]
+
+            exp_comment = entity_comments.get(f"exp_{exp_data.get('id')}", "")
+            exp_hints = entity_keyword_hints.get(f"exp_{exp_data.get('id')}", [])
+            exp_merged_keywords = list(dict.fromkeys(user_skill_keywords + exp_hints))
 
             bullets = generate_grounded_bullets(
                 job_analysis,
@@ -952,7 +1259,9 @@ def generate_draft():
                 answers,
                 relevant_qs,
                 exp_data.get("_bullets_count", 3),
-                prompt_instructions=pi_data
+                prompt_instructions=pi_data,
+                user_skill_keywords=exp_merged_keywords,
+                entity_comment=exp_comment,
             )
 
             for bullet in bullets:
@@ -965,7 +1274,9 @@ def generate_draft():
                     keywords_used=bullet.keywords_used
                 )
                 db.session.add(content)
+                db.session.flush()  # get auto-assigned id
                 generated_content.append({
+                    "id": content.id,
                     "type": "experience",
                     "target_id": bullet.target_id,
                     "target_name": exp_data.get("company", ""),
@@ -983,6 +1294,10 @@ def generate_draft():
                          for q in questions
                          if q.target_entity == "project" and q.target_id == proj_data.get("_original_index")]
 
+            proj_comment = entity_comments.get(f"proj_{proj_data.get('id')}", "")
+            proj_hints = entity_keyword_hints.get(f"proj_{proj_data.get('id')}", [])
+            proj_merged_keywords = list(dict.fromkeys(user_skill_keywords + proj_hints))
+
             bullets = generate_grounded_bullets(
                 job_analysis,
                 "project",
@@ -991,7 +1306,9 @@ def generate_draft():
                 answers,
                 relevant_qs,
                 proj_data.get("_bullets_count", 2),
-                prompt_instructions=pi_data
+                prompt_instructions=pi_data,
+                user_skill_keywords=proj_merged_keywords,
+                entity_comment=proj_comment,
             )
 
             for bullet in bullets:
@@ -1004,7 +1321,9 @@ def generate_draft():
                     keywords_used=bullet.keywords_used
                 )
                 db.session.add(content)
+                db.session.flush()  # get auto-assigned id
                 generated_content.append({
+                    "id": content.id,
                     "type": "project",
                     "target_id": bullet.target_id,
                     "target_name": proj_data.get("name", ""),
@@ -1102,7 +1421,7 @@ def select_options():
     current_user = get_jwt_identity()
     data = request.json
     session_id = data.get("session_id")
-    template_id = data.get("template_id", "classic")
+    template_id = data.get("template_id", "jake")
     page_count = data.get("page_count", 1)
 
     if not session_id:
@@ -1173,10 +1492,13 @@ def finalize_resume():
         certifications = Certification.query.filter_by(user_id=user.id).all()
         publications = Publication.query.filter_by(user_id=user.id).all()
 
-        # Get approved content
-        generated_content = GeneratedContent.query.filter_by(
-            session_id=session_id
+        # Get approved content — only user-approved bullets; fall back to all if none reviewed
+        approved_content = GeneratedContent.query.filter_by(
+            session_id=session_id,
+            user_approved=True
         ).all()
+        all_content = GeneratedContent.query.filter_by(session_id=session_id).all()
+        generated_content = approved_content if approved_content else all_content
 
         # Group content by target
         experience_bullets = {}
@@ -1194,10 +1516,10 @@ def finalize_resume():
                 project_bullets[content.target_id].append(text)
 
         # Determine template directory
-        template_id = session.template_id or "classic"
+        template_id = session.template_id or "jake"
         template_dir = os.path.join(API_DIR, "templates", template_id)
         if not os.path.exists(template_dir):
-            template_dir = os.path.join(API_DIR, "templates", "template1")
+            template_dir = os.path.join(API_DIR, "templates", "jake")
 
         main_tex_file = os.path.join(template_dir, "main.tex")
         session_output_dir = os.path.join(OUTPUT_DIR, "sessions", str(session_id))
@@ -1291,7 +1613,8 @@ def finalize_resume():
         populated_content = make_latex_resume_v2(
             latex_content=latex_template,
             data=yaml_data,
-            template_dir=template_dir
+            template_dir=template_dir,
+            page_count=session.page_count or 1
         )
 
         # Write and compile
@@ -1302,7 +1625,19 @@ def finalize_resume():
         remaining = _re.findall(r'xyz\w+xyz', populated_content)
         if remaining:
             print(f"[finalize] WARNING: Unreplaced patterns in LaTeX: {set(remaining)}")
-        compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
+        actual_pages = compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
+        print(f"[finalize] Compiled PDF: {actual_pages} page(s)")
+
+        # 1-page enforcement: try one LLM trim pass; accept overflow rather than over-reducing
+        if session.page_count == 1 and actual_pages > 1:
+            print(f"[finalize] Resume is {actual_pages} pages, attempting single trim pass...")
+            yaml_data = trim_resume_to_one_page(yaml_data)
+            populated_content = make_latex_resume_v2(latex_template, yaml_data, template_dir, page_count=1)
+            write_latex(file_path=output_tex_file, content=populated_content)
+            actual_pages = compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
+            print(f"[finalize] After trim: {actual_pages} page(s)")
+            if actual_pages > 1:
+                print("[finalize] Still >1 page after trim — keeping as-is to avoid over-reduction")
 
         output_pdf_path = os.path.join(session_output_dir, "resume.pdf")
 

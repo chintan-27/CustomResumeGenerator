@@ -200,14 +200,43 @@ def _format_bullets(bullets):
     )
 
 
-def make_latex_resume_v2(latex_content, data, template_dir):
+def _deduplicate_bullets(bullets: list) -> list:
+    """Remove near-duplicate bullets using word-overlap heuristic (>65% overlap = duplicate)."""
+    seen = []
+    unique = []
+    for bullet in bullets:
+        if not bullet or not bullet.strip():
+            continue
+        words = set(bullet.lower().split())
+        overlap = max(
+            (len(words & prev) / max(len(words), len(prev)) for prev in seen if prev),
+            default=0
+        )
+        if overlap <= 0.65:
+            unique.append(bullet)
+            seen.append(words)
+    return unique
+
+
+def make_latex_resume_v2(latex_content, data, template_dir, page_count: int = 1):
     """
     Fill a LaTeX template using pre-generated content (V2 agentic flow).
     No LLM calls — uses generated_bullets already attached to each experience/project.
+    page_count controls spacing tightness and content limits.
     """
     global useMoreSpace, useLessSpace
     useMoreSpace = 0
     useLessSpace = 0
+
+    # For 1-page: inject tighter spacing overrides right after \begin{document}
+    # Note: only inject \setlist (requires enumitem, always loaded) — NOT \titlespacing
+    # because titlesec is not loaded in the new templates.
+    if page_count == 1:
+        latex_content = latex_content.replace(
+            r'\begin{document}',
+            r'\begin{document}' + '\n'
+            r'\setlist[itemize]{itemsep=-4pt, topsep=0pt, parsep=0pt}'
+        )
 
     extracted_patterns = list(set(extract_patterns(latex_content)))
 
@@ -315,7 +344,8 @@ def make_latex_resume_v2(latex_content, data, template_dir):
                                else f"{exp.get('startmonth','')[:3]} {exp.get('startyear','')} - Present")
                         exp_latex = exp_latex.replace("xyzdurationxyz", dur)
                     elif p == "points":
-                        exp_latex = exp_latex.replace("xyzpointsxyz", _format_bullets(exp.get('generated_bullets', [])))
+                        bullets = _deduplicate_bullets(exp.get('generated_bullets', []))
+                        exp_latex = exp_latex.replace("xyzpointsxyz", _format_bullets(bullets))
                     else:
                         exp_latex = exp_latex.replace(f"xyz{p}xyz", _escape_latex(str(exp.get(p) or "")))
                 final_exp.append((exp.get('startmonth', ''), exp.get('startyear', ''), exp_latex))
@@ -339,7 +369,8 @@ def make_latex_resume_v2(latex_content, data, template_dir):
                 proj_latex = projects_latex_og.split("-----")[0]
                 for p in list(set(extract_patterns(proj_latex))):
                     if p == "points":
-                        proj_latex = proj_latex.replace("xyzpointsxyz", _format_bullets(proj.get('generated_bullets', [])))
+                        bullets = _deduplicate_bullets(proj.get('generated_bullets', []))
+                        proj_latex = proj_latex.replace("xyzpointsxyz", _format_bullets(bullets))
                     else:
                         proj_latex = proj_latex.replace(f"xyz{p}xyz", _escape_latex(str(proj.get(p) or "")))
                 final_proj.append(proj_latex)
@@ -478,7 +509,8 @@ def make_latex_resume(latex_content, data, jobdescription ,template_dir):
 
 # Compile LaTeX to PDF
 # Function to compile a LaTeX document into a PDF
-def compile_pdf(main_tex_path: str, output_dir: str):
+def compile_pdf(main_tex_path: str, output_dir: str) -> int:
+    """Compile LaTeX to PDF and return the actual page count (default 1 on parse failure)."""
     try:
         # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
@@ -493,11 +525,25 @@ def compile_pdf(main_tex_path: str, output_dir: str):
 
         print("✅ LaTeX compilation successful!")
 
+        # Parse page count from .log before cleanup
+        base_name = os.path.splitext(os.path.basename(main_tex_path))[0]
+        log_path = os.path.join(output_dir, base_name + ".log")
+        actual_pages = 1
+        if os.path.exists(log_path):
+            with open(log_path) as lf:
+                for line in lf:
+                    m = re.search(r'Output written on .+ \((\d+) pages?,', line)
+                    if m:
+                        actual_pages = int(m.group(1))
+                        break
+
         # Clean up auxiliary files, keep only .tex and .pdf
         aux_extensions = {".aux", ".log", ".fls", ".fdb_latexmk", ".synctex.gz", ".out", ".toc"}
         for f in os.listdir(output_dir):
             if os.path.splitext(f)[1] in aux_extensions:
                 os.remove(os.path.join(output_dir, f))
+
+        return actual_pages
 
     except subprocess.CalledProcessError as e:
         stdout = e.stdout.decode() if e.stdout else ""
