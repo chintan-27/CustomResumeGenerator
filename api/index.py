@@ -27,7 +27,6 @@ from gpt_v2 import (
     generate_skills_section,
     select_content_for_page_count,
     score_content_relevance_ai,
-    trim_resume_to_one_page,
     fetch_github_readme,
     get_llm_client,
     get_model_name,
@@ -1627,17 +1626,6 @@ def finalize_resume():
             print(f"[finalize] WARNING: Unreplaced patterns in LaTeX: {set(remaining)}")
         actual_pages = compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
         print(f"[finalize] Compiled PDF: {actual_pages} page(s)")
-
-        # 1-page enforcement: try one LLM trim pass; accept overflow rather than over-reducing
-        if session.page_count == 1 and actual_pages > 1:
-            print(f"[finalize] Resume is {actual_pages} pages, attempting single trim pass...")
-            yaml_data = trim_resume_to_one_page(yaml_data)
-            populated_content = make_latex_resume_v2(latex_template, yaml_data, template_dir, page_count=1)
-            write_latex(file_path=output_tex_file, content=populated_content)
-            actual_pages = compile_pdf(main_tex_path=output_tex_file, output_dir=session_output_dir)
-            print(f"[finalize] After trim: {actual_pages} page(s)")
-            if actual_pages > 1:
-                print("[finalize] Still >1 page after trim — keeping as-is to avoid over-reduction")
 
         output_pdf_path = os.path.join(session_output_dir, "resume.pdf")
 
