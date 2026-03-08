@@ -23,19 +23,25 @@ const Summary = ({ formData, prevStep }: { formData: any; prevStep: () => void }
 
     try {
       const token = session?.accessToken;
-      if (!token) throw new Error("Authentication token is missing");
+      if (!token) throw new Error("Session expired — please sign in again");
+
+      const authHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+      const checkResponse = (res: Response, label: string) => {
+        if (res.status === 401) throw new Error("Session expired — please sign out and sign back in");
+        if (!res.ok) throw new Error(`Failed to submit ${label}`);
+      };
 
       const personalInfoResponse = await fetch(`/python/user/profile`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: authHeaders,
         body: JSON.stringify(formData.personalInfo),
       });
-      if (!personalInfoResponse.ok) throw new Error("Failed to submit personal info");
+      checkResponse(personalInfoResponse, "personal info");
 
       const educationRequests = (formData.education || []).map((edu: any) =>
         fetch(`/python/user/education`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          method: "POST", headers: authHeaders,
           body: JSON.stringify({
             ...edu,
             relevant_coursework: Array.isArray(edu.relevantCoursework)
@@ -46,55 +52,42 @@ const Summary = ({ formData, prevStep }: { formData: any; prevStep: () => void }
       );
 
       const experienceRequests = (formData.experience || []).map((exp: any) =>
-        fetch(`/python/user/experience`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(exp),
-        })
+        fetch(`/python/user/experience`, { method: "POST", headers: authHeaders, body: JSON.stringify(exp) })
       );
 
       const projectRequests = (formData.projects || []).map((proj: any) =>
-        fetch(`/python/user/project`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(proj),
-        })
+        fetch(`/python/user/project`, { method: "POST", headers: authHeaders, body: JSON.stringify(proj) })
       );
 
       const skillRequest = fetch(`/python/user/skills`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST", headers: authHeaders,
         body: JSON.stringify({ skills: getSkillsString() }),
       });
 
       const certRequests = (formData.certifications || [])
         .filter((c: any) => c.name?.trim())
-        .map((c: any) =>
-          fetch(`/python/certifications`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify(c),
-          })
-        );
+        .map((c: any) => fetch(`/python/certifications`, { method: "POST", headers: authHeaders, body: JSON.stringify(c) }));
 
       const pubRequests = (formData.publications || [])
         .filter((p: any) => p.title?.trim())
-        .map((p: any) =>
-          fetch(`/python/publications`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify(p),
-          })
-        );
+        .map((p: any) => fetch(`/python/publications`, { method: "POST", headers: authHeaders, body: JSON.stringify(p) }));
 
-      await Promise.all([...educationRequests, ...experienceRequests, ...projectRequests, skillRequest, ...certRequests, ...pubRequests]);
+      const allResponses = await Promise.all([
+        ...educationRequests, ...experienceRequests, ...projectRequests,
+        skillRequest, ...certRequests, ...pubRequests,
+      ]);
+
+      // Check for 401 in any batch response
+      const expiredRes = allResponses.find((r) => r.status === 401);
+      if (expiredRes) throw new Error("Session expired — please sign out and sign back in");
 
       const completeOnboardingResponse = await fetch(`/python/user/complete`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!completeOnboardingResponse.ok) throw new Error("Failed to complete onboarding");
+      checkResponse(completeOnboardingResponse, "onboarding completion");
 
+      localStorage.removeItem("onboarding_draft");
       window.location.href = "/dashboard";
     } catch (err: any) {
       console.error("Error during onboarding:", err);

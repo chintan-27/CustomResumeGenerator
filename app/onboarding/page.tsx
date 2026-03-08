@@ -34,8 +34,12 @@ const extractGitHubUsername = (githubUrl: string): string | null => {
   } catch { return null; }
 };
 
+const STORAGE_KEY = "onboarding_draft";
+
 const Onboarding: React.FC = () => {
   const [step, setStep] = useState(1);
+  const [maxStep, setMaxStep] = useState(1);
+  const [hydrated, setHydrated] = useState(false);
   const [formData, setFormData] = useState({
     personalInfo: {},
     education: [],
@@ -48,6 +52,28 @@ const Onboarding: React.FC = () => {
 
   const { data: session } = useSession();
   const router = useRouter();
+
+  // Restore saved progress on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const { step: savedStep, maxStep: savedMax, formData: savedData } = JSON.parse(saved);
+        if (savedData) setFormData(savedData);
+        if (savedStep) setStep(savedStep);
+        if (savedMax) setMaxStep(savedMax);
+      }
+    } catch {}
+    setHydrated(true);
+  }, []);
+
+  // Save progress whenever step or formData changes
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, maxStep, formData }));
+    } catch {}
+  }, [step, maxStep, formData, hydrated]);
   const [linkedinEduText, setLinkedinEduText] = useState("");
   const [linkedinExpText, setLinkedinExpText] = useState("");
   const [linkedinOpen, setLinkedinOpen] = useState(false);
@@ -143,8 +169,15 @@ const Onboarding: React.FC = () => {
     }
   };
 
-  const nextStep = () => setStep((prev) => prev + 1);
+  const nextStep = () => setStep((prev) => {
+    const next = prev + 1;
+    setMaxStep((m) => Math.max(m, next));
+    return next;
+  });
   const prevStep = () => setStep((prev) => prev - 1);
+  const goToStep = (target: number) => {
+    if (target <= maxStep) setStep(target);
+  };
 
   const handleDataChange = (section: string, data: any) => {
     setFormData((prev) => ({ ...prev, [section]: data }));
@@ -185,17 +218,24 @@ const Onboarding: React.FC = () => {
             {STEPS.map((s, idx) => {
               const isCompleted = s.id < step;
               const isCurrent = s.id === step;
+              const isVisited = s.id <= maxStep;
 
               return (
                 <React.Fragment key={s.id}>
                   <div className="flex flex-col items-center gap-1.5">
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => goToStep(s.id)}
+                      disabled={!isVisited}
+                      title={isVisited ? `Go to ${s.label}` : undefined}
                       className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
                         isCompleted
-                          ? "bg-[#2d6a4f] text-white"
+                          ? "bg-[#2d6a4f] text-white hover:bg-[#245a40] cursor-pointer"
                           : isCurrent
-                          ? "bg-white border-2 border-[#2d6a4f] text-[#2d6a4f]"
-                          : "bg-white border-2 border-stone-200 text-stone-300"
+                          ? "bg-white border-2 border-[#2d6a4f] text-[#2d6a4f] cursor-default"
+                          : isVisited
+                          ? "bg-white border-2 border-stone-300 text-stone-400 hover:border-[#2d6a4f] hover:text-[#2d6a4f] cursor-pointer"
+                          : "bg-white border-2 border-stone-200 text-stone-300 cursor-not-allowed"
                       }`}
                     >
                       {isCompleted ? (
@@ -205,10 +245,10 @@ const Onboarding: React.FC = () => {
                       ) : (
                         s.id
                       )}
-                    </div>
+                    </button>
                     <span
                       className={`text-xs hidden sm:block transition-colors ${
-                        isCurrent ? "text-[#1a1a1a] font-semibold" : isCompleted ? "text-[#2d6a4f]" : "text-stone-300"
+                        isCurrent ? "text-[#1a1a1a] font-semibold" : isCompleted ? "text-[#2d6a4f]" : isVisited ? "text-stone-400" : "text-stone-300"
                       }`}
                       style={{ fontFamily: "var(--font-mono)" }}
                     >

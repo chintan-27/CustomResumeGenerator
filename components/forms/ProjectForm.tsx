@@ -21,6 +21,7 @@ interface GitHubRepo {
   updated_at: string;
   fork: boolean;
   topics: string[];
+  default_branch: string;
 }
 
 const emptyProject: Project = { name: "", description: "", link: "", details: "" };
@@ -49,11 +50,6 @@ const extractGitHubUsername = (githubUrl: string): string | null => {
   } catch { return null; }
 };
 
-const decodeReadme = (base64Content: string): string => {
-  try {
-    return atob(base64Content.replace(/\n/g, ""));
-  } catch { return ""; }
-};
 
 const repoToProject = (repo: GitHubRepo): Project => {
   const techParts = [
@@ -87,45 +83,27 @@ const ProjectForm = ({
   const [importingIndex, setImportingIndex] = useState<number | null>(null);
   const [importError, setImportError] = useState<string>("");
 
-  // Fetch README + file tree and call the AI summarizer
+  // Send repo metadata to backend — backend fetches README/tree with GITHUB_TOKEN (5000 req/hr)
   const summarizeRepo = async (owner: string, repo: string, repoData: any): Promise<string> => {
-    const [readmeRes, treeRes] = await Promise.all([
-      fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, {
-        headers: { Accept: "application/vnd.github.v3+json" },
-      }),
-      fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD`, {
-        headers: { Accept: "application/vnd.github.v3+json" },
-      }),
-    ]);
-
-    const readme = readmeRes.ok ? decodeReadme((await readmeRes.json()).content ?? "") : "";
-    let fileTree: string[] = [];
-    if (treeRes.ok) {
-      const treeData = await treeRes.json();
-      fileTree = (treeData.tree as any[])
-        .filter((f) => f.type === "blob" || f.type === "tree")
-        .map((f) => f.path)
-        .slice(0, 80);
-    }
-
-    if (!readme && !fileTree.length) return repoData.description || "";
+    const token = session?.accessToken;
+    if (!token) throw new Error("Not authenticated");
 
     const res = await fetch("/python/github/summarize-repo", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session?.accessToken}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
+        owner,
         repo_name: repoData.name,
         repo_description: repoData.description || "",
-        readme,
-        file_tree: fileTree,
+        default_branch: repoData.default_branch || "main",
       }),
     });
-    if (!res.ok) return readme.slice(0, 400) || repoData.description || "";
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.status.toString());
+      throw new Error(`AI summarization failed (${res.status}): ${errText}`);
+    }
     const data = await res.json();
-    return data.description || "";
+    return data.description || repoData.description || "";
   };
 
   // GitHub repo browser state
@@ -216,14 +194,21 @@ const ProjectForm = ({
         .join(", ");
 
       // AI-generated description from full README + file tree
-      const description = await summarizeRepo(parsed.owner, parsed.repo, data);
+      let description = "";
+      try {
+        description = await summarizeRepo(parsed.owner, parsed.repo, data);
+      } catch (aiErr: any) {
+        // AI failed but we still have name/tech — show a warning but don't block
+        setImportError(`AI description failed: ${aiErr.message}. Other fields filled from GitHub.`);
+      }
 
       setProjectList((prev) => {
         const updated = [...prev];
         updated[index] = {
           ...updated[index],
           name: updated[index].name || data.name?.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || "",
-          description: updated[index].description || description,
+          // Always apply AI description if available; only keep existing if AI returned nothing
+          description: description || updated[index].description,
           details: updated[index].details || tech,
           link: `https://github.com/${parsed.owner}/${parsed.repo}`,
         };
@@ -264,25 +249,62 @@ const ProjectForm = ({
   };
 
   const [addingRepos, setAddingRepos] = useState(false);
+  const [addingProgress, setAddingProgress] = useState("");
+
+  // Process items in sequential batches to avoid GitHub (60 req/hr) + LLM rate limits
+  const processBatched = async <T, R>(
+    items: T[],
+    fn: (item: T) => Promise<R>,
+    batchSize = 2,
+    delayMs = 400
+  ): Promise<R[]> => {
+    const results: R[] = [];
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map(fn));
+      results.push(...batchResults);
+      if (i + batchSize < items.length) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    return results;
+  };
 
   const addSelectedRepos = async () => {
     const selected = repos.filter((r) => selectedRepoIds.has(r.id));
     setAddingRepos(true);
+    setReposError("");
+    setAddingProgress(`0 / ${selected.length}`);
 
-    // AI-summarize all selected repos in parallel
-    const withDescription = await Promise.all(
-      selected.map(async (repo) => {
+    let failedCount = 0;
+    let doneCount = 0;
+
+    const withDescription = await processBatched(
+      selected,
+      async (repo) => {
         const base = repoToProject(repo);
         const [owner, repoName] = repo.full_name.split("/");
         try {
           const description = await summarizeRepo(owner, repoName, repo);
+          doneCount++;
+          setAddingProgress(`${doneCount} / ${selected.length}`);
           return { ...base, description: description || base.description };
-        } catch {
+        } catch (err: any) {
+          failedCount++;
+          doneCount++;
+          setAddingProgress(`${doneCount} / ${selected.length}`);
+          console.error(`AI summarize failed for ${repo.name}:`, err.message);
           return base;
         }
-      })
+      },
+      2,   // 2 repos at a time
+      500  // 500ms between batches
     );
 
+    if (failedCount > 0) {
+      setReposError(`AI description failed for ${failedCount} repo${failedCount > 1 ? "s" : ""} — added with GitHub description instead.`);
+    }
+    setAddingProgress("");
     setAddingRepos(false);
     const filtered = projectList.filter((p) => p.name.trim() || p.description.trim() || p.link.trim());
     const combined = [...filtered, ...withDescription];
@@ -371,7 +393,7 @@ const ProjectForm = ({
                     {addingRepos ? (
                       <>
                         <div className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
-                        Fetching READMEs…
+                        {addingProgress ? `Summarizing ${addingProgress}…` : "Starting…"}
                       </>
                     ) : (
                       `Add ${selectedRepoIds.size} selected`

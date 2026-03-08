@@ -1,5 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Increase proxy timeout for long-running LLM calls (default is ~30s)
+  httpAgentOptions: {
+    keepAlive: true,
+  },
+  experimental: {
+    proxyTimeout: 120_000, // 2 minutes
+  },
   rewrites: async () => {
     return [
       {

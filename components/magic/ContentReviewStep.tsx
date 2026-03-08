@@ -137,6 +137,9 @@ const ContentReviewStep: React.FC<ContentReviewStepProps> = ({
                       originalText={bullet.original_text}
                       generatedText={bullet.generated_text}
                       keywordsUsed={bullet.keywords_used}
+                      entityType="experience"
+                      entityName={bullet.target_name}
+                      entityDescription={bullet.original_text}
                       onApprove={(approved, editedText) =>
                         handleApprove(bullet._index!, approved, editedText)
                       }
@@ -173,6 +176,9 @@ const ContentReviewStep: React.FC<ContentReviewStepProps> = ({
                       originalText={bullet.original_text}
                       generatedText={bullet.generated_text}
                       keywordsUsed={bullet.keywords_used}
+                      entityType="project"
+                      entityName={bullet.target_name}
+                      entityDescription={bullet.original_text}
                       onApprove={(approved, editedText) =>
                         handleApprove(bullet._index!, approved, editedText)
                       }
